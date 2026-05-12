@@ -1,0 +1,13 @@
+# requirements.txt — Agente LLM El Egypcio
+
+# UI y captura
+PyQt5
+Pillow
+mss
+pywin32
+psutil
+
+# Proveedores de IA (instala los que uses)
+anthropic
+openai
+google-generativeai

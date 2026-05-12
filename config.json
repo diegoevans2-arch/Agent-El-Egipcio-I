@@ -1,0 +1,118 @@
+{
+  "ia_proveedor": "claude",
+  "ia_api_keys": {
+    "claude": "",
+    "openai": "",
+    "gemini": ""
+  },
+  "ia_modelos": {
+    "claude": "claude-sonnet-4-6",
+    "openai": "gpt-4o",
+    "gemini": "gemini-3.1-pro-preview"
+  },
+  "ruta_base": "",
+  "nombre_usuario": "",
+  "app_bitacora": "obsidian",
+  "ruta_obsidian_1": "",
+  "ruta_obsidian_2": "",
+  "dias_contexto_chat": 7,
+  "system_prompt": "",
+  "ventana_anclada": false,
+  "monitor_captura": 1,
+
+  "captura": {
+    "estabilidad_segundos": 5,
+    "intervalo_reunion_segundos": 120
+  },
+
+  "alertas": {
+    "inactividad_dias": 3
+  },
+
+  "lista_blanca_procesos": [
+    "dbeaver.exe",
+    "PBIDesktop.exe",
+    "EXCEL.EXE",
+    "WINWORD.EXE",
+    "POWERPNT.EXE",
+    "Code.exe",
+    "OUTLOOK.EXE",
+    "Zoom.exe",
+    "notepad.exe",
+    "cmd.exe",
+    "WindowsTerminal.exe",
+    "powershell.exe",
+    "Obsidian.exe",
+    "drawio.exe",
+    "Acrobat.exe",
+    "AcroRd32.exe",
+    "GitHubDesktop.exe",
+    "Claude.exe",
+    "msedge.exe",
+    "Teams.exe",
+    "ApplicationFrameHost.exe",
+    "ms-teams.exe"
+  ],
+  "lista_negra_procesos": [
+    "Spotify.exe",
+    "WhatsApp.exe",
+    "Discord.exe",
+    "Telegram.exe",
+    "Steam.exe"
+  ],
+  "palabras_clave_laborales_browser": [
+    "github",
+    "aws",
+    "confluence",
+    "jira",
+    "analytics",
+    "documentation",
+    "docs",
+    "stackoverflow",
+    "query",
+    "sql",
+    "python",
+    "pandas",
+    "jupyter",
+    "claude",
+    "outlook",
+    "teams"
+  ],
+  "keywords_bloqueadas_browser": [
+    "youtube",
+    "netflix",
+    "spotify",
+    "instagram",
+    "facebook",
+    "twitter",
+    "tiktok",
+    "twitch",
+    "reddit",
+    "9gag",
+    "disney",
+    "prime video",
+    "soundcloud"
+  ],
+  "dominios_laborales": [
+    "github.com",
+    "atlassian.net",
+    "stackoverflow.com",
+    "office.com",
+    "outlook.com",
+    "teams.microsoft.com",
+    "claude.ai",
+    "anthropic.com"
+  ],
+  "personas_conocidas": [],
+  "palabras_clave_reunion": [
+    "teams",
+    "zoom",
+    "meet",
+    "llamada",
+    "reunión",
+    "meeting",
+    "call",
+    "webex"
+  ],
+  "proyectos": []
+}

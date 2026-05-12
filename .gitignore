@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+*.whl
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# Datos generados por el agente (no subir al repo)
+bitacoras/
+estado.json
+gantt_data.json
+
+# Archivos de backup generados por el script de limpieza
+_backup_pre_limpieza/
