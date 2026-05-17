@@ -144,7 +144,8 @@ No expliques nada más."""
 
     try:
         cliente = get_cliente()
-        resultado = cliente.clasificar(prompt, max_tokens=30)
+        resultado = cliente.clasificar(prompt, max_tokens=30,
+                                       tipo_operacion="clasificacion_proyecto")
         # Limpiar comillas o markdown que algunos modelos agregan
         resultado = resultado.strip().strip('"').strip("'").strip()
         # Verificar que sea un proyecto válido

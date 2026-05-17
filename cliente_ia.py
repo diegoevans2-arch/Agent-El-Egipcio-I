@@ -124,193 +124,316 @@ class ClienteIA:
                 self._cliente_gemini = None
 
     # ------------------------------------------------------------------
+    # Helpers FinOps: extracción de tokens según proveedor
+    # ------------------------------------------------------------------
+    def _extraer_tokens_claude(self, respuesta) -> tuple:
+        """Extrae (input, output) tokens de una respuesta del SDK de Anthropic."""
+        try:
+            usage = getattr(respuesta, "usage", None)
+            if usage is None:
+                return (0, 0)
+            return (
+                int(getattr(usage, "input_tokens", 0) or 0),
+                int(getattr(usage, "output_tokens", 0) or 0),
+            )
+        except Exception:
+            return (0, 0)
+
+    def _extraer_tokens_openai(self, respuesta) -> tuple:
+        """Extrae (input, output) tokens de una respuesta del SDK de OpenAI."""
+        try:
+            usage = getattr(respuesta, "usage", None)
+            if usage is None:
+                return (0, 0)
+            return (
+                int(getattr(usage, "prompt_tokens", 0) or 0),
+                int(getattr(usage, "completion_tokens", 0) or 0),
+            )
+        except Exception:
+            return (0, 0)
+
+    def _extraer_tokens_gemini(self, respuesta) -> tuple:
+        """
+        Extrae (input, output) tokens de una respuesta de Gemini.
+        Tanto el SDK moderno (google-genai) como el clásico exponen
+        `usage_metadata` con prompt_token_count / candidates_token_count.
+        """
+        try:
+            metadata = getattr(respuesta, "usage_metadata", None)
+            if metadata is None:
+                return (0, 0)
+            return (
+                int(getattr(metadata, "prompt_token_count", 0) or 0),
+                int(getattr(metadata, "candidates_token_count", 0) or 0),
+            )
+        except Exception:
+            return (0, 0)
+
+    def _registrar_uso_seguro(self, tipo_operacion: Optional[str],
+                              modelo: str, tokens_input: int, tokens_output: int):
+        """
+        Llama a finops.registrar_uso de forma segura: cualquier excepción es
+        capturada y logueada, para que el monitoreo NUNCA rompa el flujo
+        principal del agente.
+
+        Si tipo_operacion es None, no se registra (caso de retro-compat para
+        llamadas externas que no especifiquen tipo).
+        """
+        if not tipo_operacion:
+            return
+        try:
+            # Import diferido para evitar dependencia circular y permitir que
+            # cliente_ia.py funcione incluso si finops.py no está disponible.
+            import finops
+            finops.registrar_uso(
+                tipo=tipo_operacion,
+                modelo=modelo,
+                tokens_input=tokens_input,
+                tokens_output=tokens_output,
+            )
+        except Exception as e:
+            print(f"[ClienteIA] FinOps registro silenciado: {e}")
+
+    # ------------------------------------------------------------------
     # Validación de key
     # ------------------------------------------------------------------
     def validar_key(self) -> tuple[bool, str]:
         """
         Hace un mini-llamado para validar que la key funcione.
         Retorna (True, "OK") o (False, "mensaje de error").
+        Se registra en FinOps como tipo "validacion_key".
         """
+        tokens_in, tokens_out = 0, 0
         try:
             if self.proveedor == "claude":
-                self._sdk.messages.create(
+                respuesta = self._sdk.messages.create(
                     model=self.modelo_rapido,
                     max_tokens=5,
                     messages=[{"role": "user", "content": "hi"}]
                 )
+                tokens_in, tokens_out = self._extraer_tokens_claude(respuesta)
             elif self.proveedor == "openai":
-                self._sdk.chat.completions.create(
+                respuesta = self._sdk.chat.completions.create(
                     model=self.modelo_rapido,
                     max_tokens=5,
                     messages=[{"role": "user", "content": "hi"}]
                 )
+                tokens_in, tokens_out = self._extraer_tokens_openai(respuesta)
             elif self.proveedor == "gemini":
                 if self._cliente_gemini is not None:
-                    self._cliente_gemini.models.generate_content(
+                    respuesta = self._cliente_gemini.models.generate_content(
                         model=self.modelo_rapido,
                         contents="hi"
                     )
+                    tokens_in, tokens_out = self._extraer_tokens_gemini(respuesta)
                 else:
                     modelo = self._sdk.GenerativeModel(self.modelo_rapido)
-                    modelo.generate_content("hi")
+                    respuesta = modelo.generate_content("hi")
+                    tokens_in, tokens_out = self._extraer_tokens_gemini(respuesta)
             return (True, "OK")
         except Exception as e:
             return (False, str(e))
+        finally:
+            self._registrar_uso_seguro(
+                "validacion_key", self.modelo_rapido, tokens_in, tokens_out
+            )
 
     # ------------------------------------------------------------------
     # Análisis de imagen (Vision)
     # ------------------------------------------------------------------
-    def analizar_imagen(self, prompt: str, imagen_b64: str, max_tokens: int = 300) -> str:
+    def analizar_imagen(self, prompt: str, imagen_b64: str,
+                        max_tokens: int = 300,
+                        tipo_operacion: Optional[str] = None) -> str:
         """
         Envía una imagen + prompt y retorna la respuesta textual.
         imagen_b64: imagen en base64 (sin prefijo data:).
+
+        tipo_operacion: etiqueta FinOps (ej. "captura_actividad",
+        "captura_reunion"). Si se omite, no se registra en el monitor.
         """
-        if self.proveedor == "claude":
-            respuesta = self._sdk.messages.create(
-                model=self.modelo,
-                max_tokens=max_tokens,
-                messages=[{
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image",
-                            "source": {
-                                "type": "base64",
-                                "media_type": "image/jpeg",
-                                "data": imagen_b64
-                            }
-                        },
-                        {"type": "text", "text": prompt}
-                    ]
-                }]
-            )
-            return respuesta.content[0].text.strip()
-
-        elif self.proveedor == "openai":
-            respuesta = self._sdk.chat.completions.create(
-                model=self.modelo,
-                max_tokens=max_tokens,
-                messages=[{
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt},
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/jpeg;base64,{imagen_b64}"
-                            }
-                        }
-                    ]
-                }]
-            )
-            return respuesta.choices[0].message.content.strip()
-
-        elif self.proveedor == "gemini":
-            imagen_bytes = base64.b64decode(imagen_b64)
-            if self._cliente_gemini is not None:
-                from google.genai import types
-                respuesta = self._cliente_gemini.models.generate_content(
+        tokens_in, tokens_out = 0, 0
+        try:
+            if self.proveedor == "claude":
+                respuesta = self._sdk.messages.create(
                     model=self.modelo,
-                    contents=[
-                        types.Part.from_bytes(data=imagen_bytes, mime_type="image/jpeg"),
-                        prompt
-                    ],
-                    config=types.GenerateContentConfig(max_output_tokens=max_tokens)
+                    max_tokens=max_tokens,
+                    messages=[{
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": "image/jpeg",
+                                    "data": imagen_b64
+                                }
+                            },
+                            {"type": "text", "text": prompt}
+                        ]
+                    }]
                 )
-                return respuesta.text.strip()
-            else:
-                # SDK clásico
-                from PIL import Image
-                import io
-                img = Image.open(io.BytesIO(imagen_bytes))
-                modelo = self._sdk.GenerativeModel(self.modelo)
-                respuesta = modelo.generate_content([prompt, img])
-                return respuesta.text.strip()
+                tokens_in, tokens_out = self._extraer_tokens_claude(respuesta)
+                return respuesta.content[0].text.strip()
+
+            elif self.proveedor == "openai":
+                respuesta = self._sdk.chat.completions.create(
+                    model=self.modelo,
+                    max_tokens=max_tokens,
+                    messages=[{
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:image/jpeg;base64,{imagen_b64}"
+                                }
+                            }
+                        ]
+                    }]
+                )
+                tokens_in, tokens_out = self._extraer_tokens_openai(respuesta)
+                return respuesta.choices[0].message.content.strip()
+
+            elif self.proveedor == "gemini":
+                imagen_bytes = base64.b64decode(imagen_b64)
+                if self._cliente_gemini is not None:
+                    from google.genai import types
+                    respuesta = self._cliente_gemini.models.generate_content(
+                        model=self.modelo,
+                        contents=[
+                            types.Part.from_bytes(data=imagen_bytes, mime_type="image/jpeg"),
+                            prompt
+                        ],
+                        config=types.GenerateContentConfig(max_output_tokens=max_tokens)
+                    )
+                    tokens_in, tokens_out = self._extraer_tokens_gemini(respuesta)
+                    return respuesta.text.strip()
+                else:
+                    # SDK clásico
+                    from PIL import Image
+                    import io
+                    img = Image.open(io.BytesIO(imagen_bytes))
+                    modelo = self._sdk.GenerativeModel(self.modelo)
+                    respuesta = modelo.generate_content([prompt, img])
+                    tokens_in, tokens_out = self._extraer_tokens_gemini(respuesta)
+                    return respuesta.text.strip()
+        finally:
+            # Se registra incluso si hubo excepción (con tokens=0). Eso
+            # permite ver en FinOps que hubo intentos fallidos.
+            self._registrar_uso_seguro(tipo_operacion, self.modelo, tokens_in, tokens_out)
 
     # ------------------------------------------------------------------
     # Chat conversacional
     # ------------------------------------------------------------------
-    def chat(self, system: str, mensajes: list, max_tokens: int = 1000) -> str:
+    def chat(self, system: str, mensajes: list, max_tokens: int = 1000,
+             tipo_operacion: Optional[str] = None) -> str:
         """
         Conversación multi-turno.
         mensajes: lista de {role: "user"/"assistant", content: str}
+
+        tipo_operacion: etiqueta FinOps (ej. "chat_usuario", "resumen_dia",
+        "resumen_semana"). Si se omite, no se registra en el monitor.
         """
-        if self.proveedor == "claude":
-            respuesta = self._sdk.messages.create(
-                model=self.modelo,
-                max_tokens=max_tokens,
-                system=system,
-                messages=mensajes
-            )
-            return respuesta.content[0].text.strip()
-
-        elif self.proveedor == "openai":
-            mensajes_openai = [{"role": "system", "content": system}] + mensajes
-            respuesta = self._sdk.chat.completions.create(
-                model=self.modelo,
-                max_tokens=max_tokens,
-                messages=mensajes_openai
-            )
-            return respuesta.choices[0].message.content.strip()
-
-        elif self.proveedor == "gemini":
-            # Gemini concatena system al primer mensaje user
-            contenido = f"{system}\n\n"
-            for m in mensajes:
-                rol = "Usuario" if m["role"] == "user" else "Asistente"
-                contenido += f"{rol}: {m['content']}\n\n"
-            contenido += "Asistente:"
-
-            if self._cliente_gemini is not None:
-                from google.genai import types
-                respuesta = self._cliente_gemini.models.generate_content(
+        tokens_in, tokens_out = 0, 0
+        try:
+            if self.proveedor == "claude":
+                respuesta = self._sdk.messages.create(
                     model=self.modelo,
-                    contents=contenido,
-                    config=types.GenerateContentConfig(max_output_tokens=max_tokens)
+                    max_tokens=max_tokens,
+                    system=system,
+                    messages=mensajes
                 )
-                return respuesta.text.strip()
-            else:
-                modelo = self._sdk.GenerativeModel(self.modelo)
-                respuesta = modelo.generate_content(contenido)
-                return respuesta.text.strip()
+                tokens_in, tokens_out = self._extraer_tokens_claude(respuesta)
+                return respuesta.content[0].text.strip()
+
+            elif self.proveedor == "openai":
+                mensajes_openai = [{"role": "system", "content": system}] + mensajes
+                respuesta = self._sdk.chat.completions.create(
+                    model=self.modelo,
+                    max_tokens=max_tokens,
+                    messages=mensajes_openai
+                )
+                tokens_in, tokens_out = self._extraer_tokens_openai(respuesta)
+                return respuesta.choices[0].message.content.strip()
+
+            elif self.proveedor == "gemini":
+                # Gemini concatena system al primer mensaje user
+                contenido = f"{system}\n\n"
+                for m in mensajes:
+                    rol = "Usuario" if m["role"] == "user" else "Asistente"
+                    contenido += f"{rol}: {m['content']}\n\n"
+                contenido += "Asistente:"
+
+                if self._cliente_gemini is not None:
+                    from google.genai import types
+                    respuesta = self._cliente_gemini.models.generate_content(
+                        model=self.modelo,
+                        contents=contenido,
+                        config=types.GenerateContentConfig(max_output_tokens=max_tokens)
+                    )
+                    tokens_in, tokens_out = self._extraer_tokens_gemini(respuesta)
+                    return respuesta.text.strip()
+                else:
+                    modelo = self._sdk.GenerativeModel(self.modelo)
+                    respuesta = modelo.generate_content(contenido)
+                    tokens_in, tokens_out = self._extraer_tokens_gemini(respuesta)
+                    return respuesta.text.strip()
+        finally:
+            self._registrar_uso_seguro(tipo_operacion, self.modelo, tokens_in, tokens_out)
 
     # ------------------------------------------------------------------
     # Clasificación rápida (modelo barato)
     # ------------------------------------------------------------------
-    def clasificar(self, prompt: str, max_tokens: int = 30) -> str:
+    def clasificar(self, prompt: str, max_tokens: int = 30,
+                   tipo_operacion: Optional[str] = None) -> str:
         """
         Tarea rápida y barata: usa el modelo rápido del proveedor.
         Ideal para clasificar actividades.
+
+        tipo_operacion: etiqueta FinOps (típicamente "clasificacion_proyecto").
+        El registro usa self.modelo_rapido, no self.modelo.
         """
-        if self.proveedor == "claude":
-            respuesta = self._sdk.messages.create(
-                model=self.modelo_rapido,
-                max_tokens=max_tokens,
-                messages=[{"role": "user", "content": prompt}]
-            )
-            return respuesta.content[0].text.strip()
-
-        elif self.proveedor == "openai":
-            respuesta = self._sdk.chat.completions.create(
-                model=self.modelo_rapido,
-                max_tokens=max_tokens,
-                messages=[{"role": "user", "content": prompt}]
-            )
-            return respuesta.choices[0].message.content.strip()
-
-        elif self.proveedor == "gemini":
-            if self._cliente_gemini is not None:
-                from google.genai import types
-                respuesta = self._cliente_gemini.models.generate_content(
+        tokens_in, tokens_out = 0, 0
+        try:
+            if self.proveedor == "claude":
+                respuesta = self._sdk.messages.create(
                     model=self.modelo_rapido,
-                    contents=prompt,
-                    config=types.GenerateContentConfig(max_output_tokens=max_tokens)
+                    max_tokens=max_tokens,
+                    messages=[{"role": "user", "content": prompt}]
                 )
-                return respuesta.text.strip()
-            else:
-                modelo = self._sdk.GenerativeModel(self.modelo_rapido)
-                respuesta = modelo.generate_content(prompt)
-                return respuesta.text.strip()
+                tokens_in, tokens_out = self._extraer_tokens_claude(respuesta)
+                return respuesta.content[0].text.strip()
+
+            elif self.proveedor == "openai":
+                respuesta = self._sdk.chat.completions.create(
+                    model=self.modelo_rapido,
+                    max_tokens=max_tokens,
+                    messages=[{"role": "user", "content": prompt}]
+                )
+                tokens_in, tokens_out = self._extraer_tokens_openai(respuesta)
+                return respuesta.choices[0].message.content.strip()
+
+            elif self.proveedor == "gemini":
+                if self._cliente_gemini is not None:
+                    from google.genai import types
+                    respuesta = self._cliente_gemini.models.generate_content(
+                        model=self.modelo_rapido,
+                        contents=prompt,
+                        config=types.GenerateContentConfig(max_output_tokens=max_tokens)
+                    )
+                    tokens_in, tokens_out = self._extraer_tokens_gemini(respuesta)
+                    return respuesta.text.strip()
+                else:
+                    modelo = self._sdk.GenerativeModel(self.modelo_rapido)
+                    respuesta = modelo.generate_content(prompt)
+                    tokens_in, tokens_out = self._extraer_tokens_gemini(respuesta)
+                    return respuesta.text.strip()
+        finally:
+            # IMPORTANTE: registramos el modelo_rapido, no self.modelo
+            self._registrar_uso_seguro(
+                tipo_operacion, self.modelo_rapido, tokens_in, tokens_out
+            )
 
 
 # ---------------------------------------------------------------------------

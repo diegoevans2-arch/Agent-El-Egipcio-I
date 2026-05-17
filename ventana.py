@@ -31,6 +31,7 @@ from cliente_ia import (
     MODELOS_DISPONIBLES, PROVEEDORES, MODELOS_PRINCIPALES,
     get_cliente
 )
+import temas
 
 
 # ---------------------------------------------------------------------------
@@ -60,6 +61,379 @@ def _resolver_icono(nombre_archivo: str) -> QIcon:
         print(f"[Iconos] ⚠ {ruta} no se pudo cargar como QIcon — usando default.")
         return QIcon()
     return icono
+
+
+
+
+# ---------------------------------------------------------------------------
+# Stylesheets parametrizados por tema
+# ---------------------------------------------------------------------------
+# Cada función toma una paleta (dict de colores) y devuelve el CSS de un
+# bloque concreto. La paleta se obtiene de temas.obtener_paleta_activa().
+#
+# Para cambiar de tema en caliente: cambiar el campo `tema_visual` en
+# config.json, luego llamar a `_aplicar_tema_a_widgets_abiertos(ventana)`.
+#
+# Si añades un nuevo color hardcoded a un stylesheet, mapéalo a un campo
+# de la paleta — nunca uses #xxxxxx literales aquí.
+# ---------------------------------------------------------------------------
+
+def _stylesheet_ventana_principal(p: dict) -> str:
+    """CSS de la VentanaAgente (la ventana flotante principal)."""
+    return f"""
+        QWidget {{
+            background-color: {p["fondo_principal"]};
+            color: {p["texto_principal"]};
+            font-family: 'Segoe UI';
+        }}
+        QLabel#subtitulo {{ color: {p["texto_subtitulo"]}; font-size: 8pt; }}
+        QLabel#badge {{ color: {p["acento"]}; font-size: 8pt; font-weight: bold; }}
+        QLineEdit {{
+            background-color: {p["fondo_terciario"]};
+            border: 1px solid {p["borde"]};
+            border-radius: 6px;
+            padding: 6px 10px;
+            color: {p["texto_principal"]};
+            font-size: 9pt;
+        }}
+        QTextEdit {{
+            background-color: {p["fondo_secundario"]};
+            border: 1px solid {p["fondo_terciario"]};
+            border-radius: 4px;
+            color: {p["selector_acento"]};
+        }}
+        QPushButton {{
+            background-color: {p["fondo_terciario"]};
+            border: 1px solid {p["borde"]};
+            border-radius: 6px;
+            padding: 6px 12px;
+            color: {p["texto_principal"]};
+            font-size: 9pt;
+        }}
+        QPushButton:hover {{ background-color: {p["fondo_hover"]}; }}
+        QPushButton:checked {{
+            background-color: {p["acento"]};
+            color: {p["texto_inverso"]};
+            font-weight: bold;
+        }}
+        QPushButton:disabled {{ color: {p["texto_atenuado"]}; border-color: {p["fondo_terciario"]}; }}
+        QScrollBar:vertical {{
+            background: {p["fondo_secundario"]};
+            width: 8px;
+            border-radius: 4px;
+        }}
+        QScrollBar::handle:vertical {{
+            background: {p["borde"]};
+            border-radius: 4px;
+            min-height: 30px;
+        }}
+        QScrollBar::handle:vertical:hover {{ background: {p["scroll_handle"]}; }}
+        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
+        QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{ background: none; }}
+
+        QPushButton#btn_chat_activo {{
+            background-color: {p["fondo_terciario"]};
+            border: 1px solid {p["acento"]};
+            color: {p["acento"]};
+        }}
+    """
+
+
+def _stylesheet_menu_monitores(p: dict) -> str:
+    """CSS del menú contextual del selector de monitor."""
+    return f"""
+        QMenu {{
+            background-color: {p["fondo_terciario"]};
+            color: {p["texto_principal"]};
+            border: 1px solid {p["borde"]};
+            border-radius: 6px;
+            padding: 4px;
+            font-family: 'Segoe UI';
+            font-size: 9pt;
+        }}
+        QMenu::item {{
+            padding: 6px 16px;
+            border-radius: 4px;
+        }}
+        QMenu::item:selected {{
+            background-color: {p["fondo_hover"]};
+        }}
+        QMenu::item:checked {{
+            color: {p["exito"]};
+            font-weight: bold;
+        }}
+    """
+
+
+def _stylesheet_popup_nota(p: dict) -> str:
+    """CSS del PopupNota (pequeño popup de captura)."""
+    return f"""
+        QDialog, QWidget {{
+            background-color: {p["fondo_principal"]};
+            color: {p["texto_principal"]};
+            font-family: 'Segoe UI';
+        }}
+        QLabel {{ color: {p["texto_principal"]}; font-size: 9pt; }}
+        QLabel#subtitulo {{ color: {p["texto_subtitulo"]}; font-size: 8pt; }}
+        QLineEdit, QTextEdit {{
+            background-color: {p["fondo_terciario"]};
+            border: 1px solid {p["borde"]};
+            border-radius: 6px;
+            padding: 6px 10px;
+            color: {p["texto_principal"]};
+            font-size: 9pt;
+        }}
+        QPushButton {{
+            background-color: {p["fondo_terciario"]};
+            border: 1px solid {p["borde"]};
+            border-radius: 6px;
+            padding: 7px 14px;
+            color: {p["texto_principal"]};
+            font-size: 9pt;
+        }}
+        QPushButton:hover {{ background-color: {p["fondo_hover"]}; }}
+    """
+
+
+def _stylesheet_popup_proyectos(p: dict) -> str:
+    """CSS del PopupProyectos (gestor con lista de activos+cerrados)."""
+    return f"""
+        QDialog, QWidget {{
+            background-color: {p["fondo_principal"]};
+            color: {p["texto_principal"]};
+            font-family: 'Segoe UI';
+        }}
+        QLabel {{ color: {p["texto_principal"]}; font-size: 9pt; }}
+        QLabel#subtitulo {{ color: {p["texto_subtitulo"]}; font-size: 8pt; }}
+        QLineEdit, QTextEdit {{
+            background-color: {p["fondo_terciario"]};
+            border: 1px solid {p["borde"]};
+            border-radius: 6px;
+            padding: 6px 10px;
+            color: {p["texto_principal"]};
+            font-size: 9pt;
+        }}
+        QPushButton {{
+            background-color: {p["fondo_terciario"]};
+            border: 1px solid {p["borde"]};
+            border-radius: 6px;
+            padding: 7px 14px;
+            color: {p["texto_principal"]};
+            font-size: 9pt;
+        }}
+        QPushButton:hover {{ background-color: {p["fondo_hover"]}; }}
+        QPushButton#btn_nuevo {{
+            background-color: {p["exito"]};
+            color: {p["texto_inverso"]};
+            font-weight: bold;
+        }}
+        QPushButton#btn_cerrar_proyecto {{
+            background-color: {p["peligro"]};
+            color: {p["texto_inverso"]};
+        }}
+        QPushButton#btn_activar_proyecto {{
+            background-color: {p["exito"]};
+            color: {p["texto_inverso"]};
+        }}
+        QLabel#nombre_cerrado {{ color: {p["texto_subtitulo"]}; }}
+        QLabel#subtitulo_cerrado {{ color: {p["texto_atenuado"]}; font-size: 8pt; }}
+        QScrollArea#scroll_proyectos {{
+            background-color: {p["fondo_principal"]};
+            border: none;
+        }}
+        QScrollBar:vertical {{
+            background-color: {p["fondo_principal"]};
+            width: 10px;
+            margin: 0px;
+        }}
+        QScrollBar::handle:vertical {{
+            background-color: {p["borde"]};
+            border-radius: 5px;
+            min-height: 20px;
+        }}
+        QScrollBar::handle:vertical:hover {{
+            background-color: {p["scroll_handle"]};
+        }}
+        QScrollBar::add-line:vertical,
+        QScrollBar::sub-line:vertical {{
+            height: 0px;
+        }}
+        QScrollBar::add-page:vertical,
+        QScrollBar::sub-page:vertical {{
+            background-color: transparent;
+        }}
+    """
+
+
+def _stylesheet_popup_gantt(p: dict) -> str:
+    """CSS del PopupGantt (selector de gantt a abrir)."""
+    return f"""
+        QDialog, QWidget {{
+            background-color: {p["fondo_principal"]};
+            color: {p["texto_principal"]};
+            font-family: 'Segoe UI';
+        }}
+        QLabel {{ color: {p["texto_principal"]}; font-size: 9pt; }}
+        QPushButton {{
+            background-color: {p["fondo_terciario"]};
+            border: 1px solid {p["borde"]};
+            border-radius: 6px;
+            padding: 8px 14px;
+            color: {p["texto_principal"]};
+            font-size: 9pt;
+        }}
+        QPushButton:hover {{ background-color: {p["fondo_hover"]}; }}
+        QPushButton#btn_global {{
+            background-color: {p["acento"]};
+            color: {p["texto_inverso"]};
+            font-weight: bold;
+        }}
+        QPushButton#btn_global:hover {{ background-color: {p["scroll_handle_hover"]}; }}
+        QComboBox {{
+            background-color: {p["fondo_terciario"]};
+            border: 1px solid {p["borde"]};
+            border-radius: 6px;
+            padding: 6px 10px;
+            color: {p["texto_principal"]};
+            font-size: 9pt;
+        }}
+        QComboBox:hover {{ border-color: {p["borde_hover"]}; }}
+        QComboBox QAbstractItemView {{
+            background-color: {p["fondo_terciario"]};
+            color: {p["texto_principal"]};
+            selection-background-color: {p["fondo_hover"]};
+        }}
+    """
+
+
+def _stylesheet_popup_configuraciones(p: dict) -> str:
+    """CSS del PopupConfiguraciones (el más grande, con todas las secciones)."""
+    return f"""
+        QDialog, QWidget {{
+            background-color: {p["fondo_principal"]};
+            color: {p["texto_principal"]};
+            font-family: 'Segoe UI';
+        }}
+        QLabel {{ color: {p["texto_principal"]}; font-size: 9pt; }}
+        QLabel#titulo_seccion {{
+            color: {p["acento"]};
+            margin-top: 4px;
+        }}
+        QLabel#hint {{
+            color: {p["texto_subtitulo"]};
+            font-size: 8pt;
+        }}
+        QTextEdit, QLineEdit {{
+            background-color: {p["fondo_terciario"]};
+            border: 1px solid {p["borde"]};
+            border-radius: 6px;
+            padding: 6px 10px;
+            color: {p["texto_principal"]};
+            font-size: 9pt;
+        }}
+        QSpinBox {{
+            background-color: {p["fondo_terciario"]};
+            border: 1px solid {p["borde"]};
+            border-radius: 6px;
+            padding: 4px 10px;
+            color: {p["texto_principal"]};
+            font-size: 9pt;
+        }}
+        QSpinBox::up-button, QSpinBox::down-button {{
+            background-color: {p["fondo_hover"]};
+            width: 18px;
+            border-radius: 3px;
+        }}
+        QSpinBox::up-button:hover, QSpinBox::down-button:hover {{
+            background-color: {p["scroll_handle"]};
+        }}
+        QComboBox {{
+            background-color: {p["fondo_terciario"]};
+            border: 1px solid {p["borde"]};
+            border-radius: 6px;
+            padding: 4px 10px;
+            color: {p["texto_principal"]};
+            font-size: 9pt;
+        }}
+        QComboBox:hover {{ border-color: {p["borde_hover"]}; }}
+        QComboBox QAbstractItemView {{
+            background-color: {p["fondo_terciario"]};
+            color: {p["texto_principal"]};
+            selection-background-color: {p["fondo_hover"]};
+            border: 1px solid {p["borde"]};
+        }}
+        QPushButton {{
+            background-color: {p["fondo_terciario"]};
+            border: 1px solid {p["borde"]};
+            border-radius: 6px;
+            padding: 8px 16px;
+            color: {p["texto_principal"]};
+            font-size: 9pt;
+        }}
+        QPushButton:hover {{ background-color: {p["fondo_hover"]}; }}
+        QPushButton#btn_guardar {{
+            background-color: {p["exito"]};
+            color: {p["texto_inverso"]};
+            font-weight: bold;
+        }}
+        QPushButton#btn_guardar:hover {{ background-color: {p["exito_hover"]}; }}
+        QPushButton#btn_limpiar_finops {{
+            background-color: {p["peligro"]};
+            color: {p["texto_inverso"]};
+        }}
+        QPushButton#btn_limpiar_finops:hover {{ background-color: {p["peligro_hover"]}; }}
+        QPushButton#btn_preview_tema {{
+            background-color: {p["acento"]};
+            color: {p["texto_inverso"]};
+            font-weight: bold;
+        }}
+        QFrame#tarjeta_finops {{
+            background-color: {p["fondo_terciario"]};
+            border: 1px solid {p["borde"]};
+            border-radius: 8px;
+        }}
+        QLabel#titulo_tarjeta_finops {{
+            color: {p["acento"]};
+            font-weight: bold;
+            font-size: 9pt;
+        }}
+        QLabel#costo_tarjeta_finops {{
+            color: {p["exito"]};
+            font-weight: bold;
+            font-size: 16pt;
+        }}
+        QFrame#grafico_finops {{
+            background-color: {p["fondo_terciario"]};
+            border: 1px solid {p["borde"]};
+            border-radius: 8px;
+        }}
+        QProgressBar#barra_finops {{
+            background-color: {p["fondo_principal"]};
+            border: 1px solid {p["borde"]};
+            border-radius: 5px;
+        }}
+        QProgressBar#barra_finops::chunk {{
+            background-color: {p["acento"]};
+            border-radius: 4px;
+        }}
+        QFrame#barra_inferior {{
+            background-color: {p["fondo_secundario"]};
+            border-top: 1px solid {p["fondo_terciario"]};
+        }}
+        QScrollBar:vertical {{
+            background: {p["fondo_secundario"]};
+            width: 8px;
+            border-radius: 4px;
+        }}
+        QScrollBar::handle:vertical {{
+            background: {p["borde"]};
+            border-radius: 4px;
+            min-height: 30px;
+        }}
+        QScrollBar::handle:vertical:hover {{ background: {p["scroll_handle"]}; }}
+        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
+        QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{ background: none; }}
+    """
 
 
 
@@ -123,10 +497,10 @@ class TextEditRedimensionable(QTextEdit):
 
     def paintEvent(self, event):
         super().paintEvent(event)
-        # Dibujar línea sutil del handle
+        # Dibujar línea sutil del handle (color del borde según tema activo)
         from PyQt5.QtGui import QPainter, QPen
         painter = QPainter(self.viewport())
-        pen = QPen(QColor("#45475a"))
+        pen = QPen(QColor(temas.obtener_paleta_activa()["borde"]))
         pen.setWidth(1)
         painter.setPen(pen)
         y = self.viewport().height() - 2
@@ -460,63 +834,12 @@ class VentanaAgente(QWidget):
     # Estilo visual
     # ------------------------------------------------------------------
     def _aplicar_estilo(self):
-        self.setStyleSheet("""
-            QWidget {
-                background-color: #1e1e2e;
-                color: #cdd6f4;
-                font-family: 'Segoe UI';
-            }
-            QLabel#subtitulo { color: #6c7086; font-size: 8pt; }
-            QLabel#badge { color: #89b4fa; font-size: 8pt; font-weight: bold; }
-            QLineEdit {
-                background-color: #313244;
-                border: 1px solid #45475a;
-                border-radius: 6px;
-                padding: 6px 10px;
-                color: #cdd6f4;
-                font-size: 9pt;
-            }
-            QTextEdit {
-                background-color: #181825;
-                border: 1px solid #313244;
-                border-radius: 4px;
-                color: #a6adc8;
-            }
-            QPushButton {
-                background-color: #313244;
-                border: 1px solid #45475a;
-                border-radius: 6px;
-                padding: 6px 12px;
-                color: #cdd6f4;
-                font-size: 9pt;
-            }
-            QPushButton:hover { background-color: #45475a; }
-            QPushButton:checked {
-                background-color: #89b4fa;
-                color: #1e1e2e;
-                font-weight: bold;
-            }
-            QPushButton:disabled { color: #45475a; border-color: #313244; }
-            QScrollBar:vertical {
-                background: #181825;
-                width: 8px;
-                border-radius: 4px;
-            }
-            QScrollBar::handle:vertical {
-                background: #45475a;
-                border-radius: 4px;
-                min-height: 30px;
-            }
-            QScrollBar::handle:vertical:hover { background: #585b70; }
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
-            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: none; }
-
-            QPushButton#btn_chat_activo {
-                background-color: #313244;
-                border: 1px solid #89b4fa;
-                color: #89b4fa;
-            }
-        """)
+        """
+        Aplica el stylesheet del tema activo. Se puede re-llamar para refrescar
+        el aspecto cuando el usuario cambia de tema en caliente.
+        """
+        paleta = temas.obtener_paleta_activa()
+        self.setStyleSheet(_stylesheet_ventana_principal(paleta))
 
     # ------------------------------------------------------------------
     # System Tray
@@ -876,28 +1199,7 @@ class VentanaAgente(QWidget):
             return
 
         menu = QMenu(self)
-        menu.setStyleSheet("""
-            QMenu {
-                background-color: #313244;
-                color: #cdd6f4;
-                border: 1px solid #45475a;
-                border-radius: 6px;
-                padding: 4px;
-                font-family: 'Segoe UI';
-                font-size: 9pt;
-            }
-            QMenu::item {
-                padding: 6px 16px;
-                border-radius: 4px;
-            }
-            QMenu::item:selected {
-                background-color: #45475a;
-            }
-            QMenu::item:checked {
-                color: #a6e3a1;
-                font-weight: bold;
-            }
-        """)
+        menu.setStyleSheet(_stylesheet_menu_monitores(temas.obtener_paleta_activa()))
 
         # Leer monitor actual de config
         cfg = cargar_config()
@@ -1049,72 +1351,8 @@ class PopupProyectos(QDialog):
                 item.widget().deleteLater()
 
     def _aplicar_estilo(self):
-        self.setStyleSheet("""
-            QDialog, QWidget {
-                background-color: #1e1e2e;
-                color: #cdd6f4;
-                font-family: 'Segoe UI';
-            }
-            QLabel { color: #cdd6f4; font-size: 9pt; }
-            QLabel#subtitulo { color: #6c7086; font-size: 8pt; }
-            QLineEdit, QTextEdit {
-                background-color: #313244;
-                border: 1px solid #45475a;
-                border-radius: 6px;
-                padding: 6px 10px;
-                color: #cdd6f4;
-                font-size: 9pt;
-            }
-            QPushButton {
-                background-color: #313244;
-                border: 1px solid #45475a;
-                border-radius: 6px;
-                padding: 7px 14px;
-                color: #cdd6f4;
-                font-size: 9pt;
-            }
-            QPushButton:hover { background-color: #45475a; }
-            QPushButton#btn_nuevo {
-                background-color: #a6e3a1;
-                color: #1e1e2e;
-                font-weight: bold;
-            }
-            QPushButton#btn_cerrar_proyecto {
-                background-color: #f38ba8;
-                color: #1e1e2e;
-            }
-            QPushButton#btn_activar_proyecto {
-                background-color: #a6e3a1;
-                color: #1e1e2e;
-            }
-            QLabel#nombre_cerrado { color: #6c7086; }
-            QLabel#subtitulo_cerrado { color: #45475a; font-size: 8pt; }
-            QScrollArea#scroll_proyectos {
-                background-color: #1e1e2e;
-                border: none;
-            }
-            QScrollBar:vertical {
-                background-color: #1e1e2e;
-                width: 10px;
-                margin: 0px;
-            }
-            QScrollBar::handle:vertical {
-                background-color: #45475a;
-                border-radius: 5px;
-                min-height: 20px;
-            }
-            QScrollBar::handle:vertical:hover {
-                background-color: #585b70;
-            }
-            QScrollBar::add-line:vertical,
-            QScrollBar::sub-line:vertical {
-                height: 0px;
-            }
-            QScrollBar::add-page:vertical,
-            QScrollBar::sub-page:vertical {
-                background-color: transparent;
-            }
-        """)
+        """Aplica el stylesheet del tema activo a este popup."""
+        self.setStyleSheet(_stylesheet_popup_proyectos(temas.obtener_paleta_activa()))
 
     # ------------------------------------------------------------------
     # Vista 1 — Lista de proyectos
@@ -1251,7 +1489,7 @@ class PopupProyectos(QDialog):
 
         self._layout.addWidget(QLabel("Título del proyecto:"))
         self.campo_titulo = QLineEdit()
-        self.campo_titulo.setPlaceholderText("Ej: Mi Proyecto")
+        self.campo_titulo.setPlaceholderText("Ej: Maestro Estudiantes")
         self._layout.addWidget(self.campo_titulo)
 
         lbl_kw = QLabel("Palabras clave (separa con comas):")
@@ -1506,43 +1744,8 @@ class PopupGantt(QDialog):
         layout.addWidget(btn_cerrar)
 
     def _aplicar_estilo(self):
-        self.setStyleSheet("""
-            QDialog, QWidget {
-                background-color: #1e1e2e;
-                color: #cdd6f4;
-                font-family: 'Segoe UI';
-            }
-            QLabel { color: #cdd6f4; font-size: 9pt; }
-            QPushButton {
-                background-color: #313244;
-                border: 1px solid #45475a;
-                border-radius: 6px;
-                padding: 8px 14px;
-                color: #cdd6f4;
-                font-size: 9pt;
-            }
-            QPushButton:hover { background-color: #45475a; }
-            QPushButton#btn_global {
-                background-color: #89b4fa;
-                color: #1e1e2e;
-                font-weight: bold;
-            }
-            QPushButton#btn_global:hover { background-color: #74c7ec; }
-            QComboBox {
-                background-color: #313244;
-                border: 1px solid #45475a;
-                border-radius: 6px;
-                padding: 6px 10px;
-                color: #cdd6f4;
-                font-size: 9pt;
-            }
-            QComboBox:hover { border-color: #89b4fa; }
-            QComboBox QAbstractItemView {
-                background-color: #313244;
-                color: #cdd6f4;
-                selection-background-color: #45475a;
-            }
-        """)
+        """Aplica el stylesheet del tema activo a este popup."""
+        self.setStyleSheet(_stylesheet_popup_gantt(temas.obtener_paleta_activa()))
 
     def _abrir_global(self):
         """Abre el archivo gantt_proyectos.md global."""
@@ -1702,7 +1905,7 @@ class PopupConfiguraciones(QDialog):
         layout.addWidget(self._hint(
             "Nombres que el agente reconoce en las bitácoras del día.\n"
             "Una persona por línea, formato: 'Nombre Apellido'.\n"
-            "Ejemplos: María López, Pedro González"
+            "Ejemplos: Pablo Rubilar, Juan Nahuelpan"
         ))
         self.txt_personas = QTextEdit()
         self.txt_personas.setMinimumHeight(90)   # ← DIMENSIÓN: alto campo personas
@@ -1738,7 +1941,7 @@ class PopupConfiguraciones(QDialog):
             "Instrucciones permanentes que recibe el LLM en cada conversación.\n"
             "Variables disponibles (opcional, se sustituyen automáticamente):\n"
             "  • {nombre_usuario} → tu nombre del config (actualmente: "
-            + self._config_actual.get("nombre_usuario", "Usuario") + ")\n"
+            + self._config_actual.get("nombre_usuario", "Diego") + ")\n"
             "  • {dias_contexto} → días de bitácoras configurados\n"
             "Si lo dejas vacío o lo restauras, se usa el prompt por defecto."
         ))
@@ -1781,13 +1984,64 @@ class PopupConfiguraciones(QDialog):
         self.combo_modelo.addItems(modelos_disp)
         layout.addWidget(self.combo_modelo)
 
+        # --- Sección: FinOps (Consumo de API) ---
+        layout.addWidget(self._titulo_seccion("📊 FinOps - Consumo de API"))
+        layout.addWidget(self._hint(
+            "Monitoreo de tokens y costo de cada llamada al LLM. "
+            "Solo el chat del agente NO se registra dos veces (su uso "
+            "ya se ve en chat_usuario)."
+        ))
+
+        # Contenedor del módulo: lo cargamos a través de _construir_modulo_finops
+        # para poder refrescarlo cuando se presione el botón de refrescar.
+        self._contenedor_finops = QWidget()
+        self._contenedor_finops.setObjectName("contenedor_finops")
+        self._layout_finops = QVBoxLayout(self._contenedor_finops)
+        self._layout_finops.setContentsMargins(0, 0, 0, 0)
+        self._layout_finops.setSpacing(8)
+        self._construir_modulo_finops()
+        layout.addWidget(self._contenedor_finops)
+
+        # --- Sección: Tema visual (skins) ---
+        layout.addWidget(self._titulo_seccion("🎨 Tema visual"))
+        layout.addWidget(self._hint(
+            "Esquema de colores de la aplicación. "
+            "Selecciona uno y presiona 'Vista previa' para verlo "
+            "aplicado en vivo. El cambio se persiste al guardar."
+        ))
+
+        # Combo de temas: lista temas.IDS_VALIDOS con emoji + nombre + descripción
+        self.combo_tema = QComboBox()
+        self.combo_tema.setMinimumHeight(30)
+        for t in temas.listar_temas():
+            self.combo_tema.addItem(
+                f"{t['emoji']}  {t['nombre']} — {t['descripcion']}",
+                userData=t["id"],
+            )
+        layout.addWidget(self.combo_tema)
+
+        # Botón de vista previa
+        fila_btn_tema = QHBoxLayout()
+        fila_btn_tema.addStretch()
+        self.btn_preview_tema = QPushButton("👁 Vista previa")
+        self.btn_preview_tema.setObjectName("btn_preview_tema")
+        self.btn_preview_tema.setToolTip(
+            "Aplica el tema seleccionado a la ventana principal y a este "
+            "popup, sin persistir. Si cancelas, vuelve al tema actual."
+        )
+        self.btn_preview_tema.clicked.connect(self._previsualizar_tema)
+        fila_btn_tema.addWidget(self.btn_preview_tema)
+        layout.addLayout(fila_btn_tema)
+
         layout.addStretch()
         scroll.setWidget(contenedor)
         layout_principal.addWidget(scroll)
 
         # --- Botones inferiores (fuera del scroll) ---
-        barra_botones = QWidget()
+        # QFrame en lugar de QWidget para que respete background-color del CSS
+        barra_botones = QFrame()
         barra_botones.setObjectName("barra_inferior")
+        barra_botones.setAttribute(Qt.WA_StyledBackground, True)
         fila = QHBoxLayout(barra_botones)
         fila.setContentsMargins(18, 10, 18, 10)
         fila.setSpacing(10)
@@ -1819,93 +2073,8 @@ class PopupConfiguraciones(QDialog):
     # Estilo
     # ------------------------------------------------------------------
     def _aplicar_estilo(self):
-        self.setStyleSheet("""
-            QDialog, QWidget {
-                background-color: #1e1e2e;
-                color: #cdd6f4;
-                font-family: 'Segoe UI';
-            }
-            QLabel { color: #cdd6f4; font-size: 9pt; }
-            QLabel#titulo_seccion {
-                color: #89b4fa;
-                margin-top: 4px;
-            }
-            QLabel#hint {
-                color: #6c7086;
-                font-size: 8pt;
-            }
-            QTextEdit, QLineEdit {
-                background-color: #313244;
-                border: 1px solid #45475a;
-                border-radius: 6px;
-                padding: 6px 10px;
-                color: #cdd6f4;
-                font-size: 9pt;
-            }
-            QSpinBox {
-                background-color: #313244;
-                border: 1px solid #45475a;
-                border-radius: 6px;
-                padding: 4px 10px;
-                color: #cdd6f4;
-                font-size: 9pt;
-            }
-            QSpinBox::up-button, QSpinBox::down-button {
-                background-color: #45475a;
-                width: 18px;
-                border-radius: 3px;
-            }
-            QSpinBox::up-button:hover, QSpinBox::down-button:hover {
-                background-color: #585b70;
-            }
-            QComboBox {
-                background-color: #313244;
-                border: 1px solid #45475a;
-                border-radius: 6px;
-                padding: 4px 10px;
-                color: #cdd6f4;
-                font-size: 9pt;
-            }
-            QComboBox:hover { border-color: #89b4fa; }
-            QComboBox QAbstractItemView {
-                background-color: #313244;
-                color: #cdd6f4;
-                selection-background-color: #45475a;
-                border: 1px solid #45475a;
-            }
-            QPushButton {
-                background-color: #313244;
-                border: 1px solid #45475a;
-                border-radius: 6px;
-                padding: 8px 16px;
-                color: #cdd6f4;
-                font-size: 9pt;
-            }
-            QPushButton:hover { background-color: #45475a; }
-            QPushButton#btn_guardar {
-                background-color: #a6e3a1;
-                color: #1e1e2e;
-                font-weight: bold;
-            }
-            QPushButton#btn_guardar:hover { background-color: #94d68f; }
-            QWidget#barra_inferior {
-                background-color: #181825;
-                border-top: 1px solid #313244;
-            }
-            QScrollBar:vertical {
-                background: #181825;
-                width: 8px;
-                border-radius: 4px;
-            }
-            QScrollBar::handle:vertical {
-                background: #45475a;
-                border-radius: 4px;
-                min-height: 30px;
-            }
-            QScrollBar::handle:vertical:hover { background: #585b70; }
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
-            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: none; }
-        """)
+        """Aplica el stylesheet del tema activo a este popup."""
+        self.setStyleSheet(_stylesheet_popup_configuraciones(temas.obtener_paleta_activa()))
 
     # ------------------------------------------------------------------
     # Datos
@@ -1944,6 +2113,15 @@ class PopupConfiguraciones(QDialog):
             # Si el modelo guardado no está en la lista, dejar el primero seleccionado
             self.combo_modelo.setCurrentIndex(0)
 
+        # Tema visual: seleccionar el actual en el combo
+        tema_actual = cfg.get("tema_visual", temas.ID_DEFAULT)
+        if tema_actual not in temas.IDS_VALIDOS:
+            tema_actual = temas.ID_DEFAULT
+        for i in range(self.combo_tema.count()):
+            if self.combo_tema.itemData(i) == tema_actual:
+                self.combo_tema.setCurrentIndex(i)
+                break
+
     def _restaurar_prompt_default(self):
         """
         Reemplaza el contenido del textarea con el SYSTEM_PROMPT por defecto.
@@ -1957,6 +2135,381 @@ class PopupConfiguraciones(QDialog):
             "Se cargó el prompt por defecto en el campo.\n"
             "Presiona 'Guardar cambios' para aplicarlo."
         )
+
+    # ------------------------------------------------------------------
+    # Selector de tema visual (skins)
+    # ------------------------------------------------------------------
+    def _previsualizar_tema(self):
+        """
+        Aplica el tema seleccionado en el combo a:
+        - Este popup (en vivo)
+        - La ventana principal del agente (en vivo)
+
+        IMPORTANTE: este método NO persiste el cambio definitivamente. El
+        config.json se sobrescribe TEMPORALMENTE para que obtener_paleta_activa()
+        devuelva el nuevo tema; si el usuario presiona 'Cancelar', el override
+        de reject() restaura el tema original.
+
+        SOBRE EL RENDER:
+        Los widgets visualmente "destacados" del módulo FinOps (tarjetas y
+        gráfico) usan QFrame con WA_StyledBackground, lo que garantiza que
+        respeten el `background-color` del stylesheet incluso al ser
+        reconstruidos dinámicamente. Por eso aquí basta con:
+        1. Aplicar el stylesheet nuevo.
+        2. Reconstruir el módulo FinOps para que tome los nuevos colores.
+        """
+        tema_id = self.combo_tema.currentData()
+        if not tema_id:
+            return
+
+        # 1. Persistir TEMPORALMENTE en config para que obtener_paleta_activa()
+        #    devuelva el nuevo tema cuando se llame a _aplicar_estilo().
+        #    Backup del tema original en una variable de instancia, para
+        #    restaurarlo si el usuario presiona Cancelar (ver reject()).
+        try:
+            ruta_cfg = Path(__file__).parent / "config.json"
+            import json as _json
+            with open(ruta_cfg, encoding="utf-8") as f:
+                cfg_actual = _json.load(f)
+            if not hasattr(self, "_tema_original"):
+                self._tema_original = cfg_actual.get("tema_visual", temas.ID_DEFAULT)
+            cfg_actual["tema_visual"] = tema_id
+            with open(ruta_cfg, "w", encoding="utf-8") as f:
+                _json.dump(cfg_actual, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"No se pudo previsualizar: {e}")
+            return
+
+        # 2. Aplicar el stylesheet del tema nuevo al popup.
+        self._aplicar_estilo()
+
+        # 3. Reconstruir el módulo FinOps con los nuevos colores. Sus widgets
+        #    QFrame con WA_StyledBackground respetan el stylesheet correctamente.
+        try:
+            self._construir_modulo_finops()
+        except Exception:
+            pass  # si falla, no afecta el preview
+
+        # 4. Aplicar a la ventana principal del agente (si está accesible).
+        widget_parent = self.parent()
+        while widget_parent is not None:
+            if hasattr(widget_parent, "_aplicar_estilo"):
+                try:
+                    widget_parent._aplicar_estilo()
+                except Exception:
+                    pass
+                break
+            widget_parent = widget_parent.parent()
+
+    def reject(self):
+        """
+        Override de reject() para restaurar el tema original si el usuario
+        cancela tras haber hecho preview de un tema distinto.
+        """
+        if hasattr(self, "_tema_original"):
+            try:
+                ruta_cfg = Path(__file__).parent / "config.json"
+                import json as _json
+                with open(ruta_cfg, encoding="utf-8") as f:
+                    cfg = _json.load(f)
+                if cfg.get("tema_visual") != self._tema_original:
+                    cfg["tema_visual"] = self._tema_original
+                    with open(ruta_cfg, "w", encoding="utf-8") as f:
+                        _json.dump(cfg, f, ensure_ascii=False, indent=2)
+                    # Re-aplicar tema original a ventana principal
+                    widget_parent = self.parent()
+                    while widget_parent is not None:
+                        if hasattr(widget_parent, "_aplicar_estilo"):
+                            try:
+                                widget_parent._aplicar_estilo()
+                            except Exception:
+                                pass
+                            break
+                        widget_parent = widget_parent.parent()
+            except Exception:
+                pass
+        super().reject()
+
+    # ------------------------------------------------------------------
+    # Módulo FinOps: muestra consumo de API (tokens, costo, desglose)
+    # ------------------------------------------------------------------
+    def _construir_modulo_finops(self):
+        """
+        Construye dinámicamente el contenido del módulo FinOps dentro de
+        self._contenedor_finops. Se puede llamar varias veces para refrescar.
+
+        El módulo se adapta al ancho del popup (no fuerza scroll horizontal).
+        """
+        # Limpiar contenido previo
+        while self._layout_finops.count():
+            item = self._layout_finops.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.deleteLater()
+
+        # Cargar datos
+        try:
+            import finops
+            r_dia = finops.resumen_dia()
+            r_mes = finops.resumen_mes()
+            historico = finops.historico_ultimos_dias(5)
+            info_precios = finops.info_precios()
+        except Exception as e:
+            err = QLabel(f"⚠ Error cargando datos FinOps: {e}")
+            err.setObjectName("subtitulo")
+            self._layout_finops.addWidget(err)
+            return
+
+        # === Fila de tarjetas: Hoy / Mes ===
+        fila_tarjetas = QHBoxLayout()
+        fila_tarjetas.setSpacing(8)
+        fila_tarjetas.addWidget(self._tarjeta_finops(
+            "📅 HOY", r_dia["total_costo"],
+            r_dia["total_llamadas"], r_dia["total_tokens"]
+        ))
+        fila_tarjetas.addWidget(self._tarjeta_finops(
+            "📆 ESTE MES", r_mes["total_costo"],
+            r_mes["total_llamadas"], r_mes["total_tokens"]
+        ))
+        contenedor_tarjetas = QWidget()
+        contenedor_tarjetas.setLayout(fila_tarjetas)
+        self._layout_finops.addWidget(contenedor_tarjetas)
+
+        # === Desglose por tipo (hoy) ===
+        lbl_desglose = QLabel("Desglose hoy por tipo de operación:")
+        lbl_desglose.setObjectName("subtitulo")
+        self._layout_finops.addWidget(lbl_desglose)
+
+        if r_dia["desglose_por_tipo"]:
+            for item in r_dia["desglose_por_tipo"]:
+                self._layout_finops.addWidget(self._fila_desglose_finops(item))
+        else:
+            sin = QLabel("_(sin actividad registrada hoy)_")
+            sin.setObjectName("subtitulo")
+            self._layout_finops.addWidget(sin)
+
+        # === Info del modelo y precios ===
+        info_modelo = QLabel(
+            f"Modelo actual: <b>{info_precios['modelo'] or '(no configurado)'}</b> "
+            f"({info_precios['proveedor']})"
+        )
+        info_modelo.setObjectName("subtitulo")
+        info_modelo.setTextFormat(Qt.RichText)
+        self._layout_finops.addWidget(info_modelo)
+
+        precio_label = (
+            f"Precio: ${info_precios['precio_input_por_millon']:.2f} input / "
+            f"${info_precios['precio_output_por_millon']:.2f} output por 1M tokens"
+        )
+        if info_precios["override_activo"]:
+            precio_label += " <i>(override desde config)</i>"
+        precio_lbl = QLabel(precio_label)
+        precio_lbl.setObjectName("subtitulo")
+        precio_lbl.setTextFormat(Qt.RichText)
+        self._layout_finops.addWidget(precio_lbl)
+
+        actualizado_lbl = QLabel(
+            f"<i>Precios hardcoded actualizados al {info_precios['actualizado_al']}. "
+            f"Para ajustar, usa el override en config.json → finops.precios_override.</i>"
+        )
+        actualizado_lbl.setObjectName("subtitulo")
+        actualizado_lbl.setTextFormat(Qt.RichText)
+        actualizado_lbl.setWordWrap(True)
+        self._layout_finops.addWidget(actualizado_lbl)
+
+        # === Histórico últimos 5 días (gráfico simple en SVG) ===
+        lbl_hist = QLabel("Histórico últimos 5 días:")
+        lbl_hist.setObjectName("subtitulo")
+        self._layout_finops.addWidget(lbl_hist)
+        self._layout_finops.addWidget(self._grafico_finops(historico))
+
+        # === Botones de acción ===
+        fila_btns = QHBoxLayout()
+        fila_btns.setSpacing(8)
+        btn_refrescar = QPushButton("🔄 Refrescar")
+        btn_refrescar.setToolTip("Vuelve a cargar los datos desde finops_data.json")
+        btn_refrescar.clicked.connect(self._refrescar_finops)
+        fila_btns.addWidget(btn_refrescar)
+
+        btn_limpiar = QPushButton("🗑 Limpiar histórico")
+        btn_limpiar.setObjectName("btn_limpiar_finops")
+        btn_limpiar.setToolTip("Borra TODO el histórico de uso (acción irreversible)")
+        btn_limpiar.clicked.connect(self._limpiar_historico_finops)
+        fila_btns.addWidget(btn_limpiar)
+
+        fila_btns.addStretch()
+        contenedor_btns = QWidget()
+        contenedor_btns.setLayout(fila_btns)
+        self._layout_finops.addWidget(contenedor_btns)
+
+    def _tarjeta_finops(self, titulo: str, costo: float,
+                        llamadas: int, tokens: int) -> QWidget:
+        """
+        Construye una tarjeta con título y métricas (costo, llamadas, tokens).
+        Se usa para Hoy y Este Mes.
+
+        IMPORTANTE: usa QFrame (no QWidget) porque QFrame respeta el
+        `background-color` y `border` del stylesheet de forma confiable.
+        QWidget plano solo lo hace si se setea WA_StyledBackground, y aun
+        así puede fallar al reconstruir dinámicamente.
+        """
+        # Formato de tokens: 4521 → "4.5k", 1234567 → "1.2M"
+        if tokens >= 1_000_000:
+            tokens_str = f"{tokens/1_000_000:.1f}M"
+        elif tokens >= 1_000:
+            tokens_str = f"{tokens/1_000:.1f}k"
+        else:
+            tokens_str = str(tokens)
+
+        contenedor = QFrame()
+        contenedor.setObjectName("tarjeta_finops")
+        contenedor.setAttribute(Qt.WA_StyledBackground, True)  # cinturón de seguridad
+        layout = QVBoxLayout(contenedor)
+        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setSpacing(4)
+
+        lbl_titulo = QLabel(titulo)
+        lbl_titulo.setObjectName("titulo_tarjeta_finops")
+        layout.addWidget(lbl_titulo)
+
+        lbl_costo = QLabel(f"${costo:.2f} USD")
+        lbl_costo.setObjectName("costo_tarjeta_finops")
+        layout.addWidget(lbl_costo)
+
+        lbl_metricas = QLabel(f"{llamadas} llamadas · ~{tokens_str} tokens")
+        lbl_metricas.setObjectName("subtitulo")
+        layout.addWidget(lbl_metricas)
+
+        return contenedor
+
+    def _fila_desglose_finops(self, item: dict) -> QWidget:
+        """
+        Fila visual de desglose:
+        [etiqueta]  [barra]  [$costo  XX%]
+        """
+        contenedor = QWidget()
+        fila = QHBoxLayout(contenedor)
+        fila.setContentsMargins(0, 2, 0, 2)
+        fila.setSpacing(8)
+
+        # Etiqueta
+        lbl_etiq = QLabel(item["etiqueta"])
+        lbl_etiq.setMinimumWidth(160)   # ← DIMENSIÓN: ancho etiqueta desglose FinOps
+        fila.addWidget(lbl_etiq)
+
+        # Barra de porcentaje (con QProgressBar truqueada)
+        from PyQt5.QtWidgets import QProgressBar
+        barra = QProgressBar()
+        barra.setRange(0, 100)
+        barra.setValue(int(item["porcentaje"]))
+        barra.setTextVisible(False)
+        barra.setFixedHeight(12)        # ← DIMENSIÓN: alto barra desglose FinOps
+        barra.setObjectName("barra_finops")
+        fila.addWidget(barra, stretch=1)
+
+        # Costo y porcentaje a la derecha
+        lbl_val = QLabel(f"${item['costo_usd']:.3f}  ({item['porcentaje']}%)")
+        lbl_val.setMinimumWidth(110)    # ← DIMENSIÓN: ancho columna valor desglose
+        lbl_val.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        fila.addWidget(lbl_val)
+
+        return contenedor
+
+    def _grafico_finops(self, historico: list) -> QWidget:
+        """
+        Mini-gráfico de barras para 5 días.
+
+        Usa QFrame (no QWidget) para que el `background-color` y `border`
+        del stylesheet `QFrame#grafico_finops { ... }` se respete tanto en
+        el render inicial como en reconstrucciones dinámicas. Sin esto,
+        el QWidget puede ignorar el background y dejar el gráfico "abierto".
+        """
+        contenedor = QFrame()
+        contenedor.setObjectName("grafico_finops")
+        contenedor.setAttribute(Qt.WA_StyledBackground, True)  # cinturón de seguridad
+        layout = QVBoxLayout(contenedor)
+        layout.setContentsMargins(8, 6, 8, 6)
+        layout.setSpacing(4)
+
+        # Calcular el máximo para escalar
+        max_costo = max((d["costo_usd"] for d in historico), default=0.0)
+        if max_costo == 0:
+            sin = QLabel("(sin actividad en los últimos 5 días)")
+            sin.setObjectName("subtitulo")
+            sin.setAlignment(Qt.AlignCenter)
+            layout.addWidget(sin)
+            return contenedor
+
+        from PyQt5.QtWidgets import QProgressBar
+        for dia in historico:
+            fila = QHBoxLayout()
+            fila.setSpacing(8)
+
+            # Fecha (abreviada)
+            lbl_dia = QLabel(f"{dia['dia']} {dia['fecha'][-5:]}")
+            lbl_dia.setMinimumWidth(70)    # ← DIMENSIÓN: ancho etiqueta dia gráfico
+            fila.addWidget(lbl_dia)
+
+            # Barra escalada
+            barra = QProgressBar()
+            pct = int((dia["costo_usd"] / max_costo) * 100) if max_costo else 0
+            barra.setRange(0, 100)
+            barra.setValue(pct)
+            barra.setTextVisible(False)
+            barra.setFixedHeight(14)        # ← DIMENSIÓN: alto barra gráfico FinOps
+            barra.setObjectName("barra_finops")
+            fila.addWidget(barra, stretch=1)
+
+            # Costo
+            lbl_costo = QLabel(f"${dia['costo_usd']:.2f}")
+            lbl_costo.setMinimumWidth(60)   # ← DIMENSIÓN: ancho costo en gráfico
+            lbl_costo.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            fila.addWidget(lbl_costo)
+
+            wrap = QWidget()
+            wrap.setLayout(fila)
+            layout.addWidget(wrap)
+
+        return contenedor
+
+    def _refrescar_finops(self):
+        """Recarga los datos del módulo FinOps."""
+        self._construir_modulo_finops()
+
+    def _limpiar_historico_finops(self):
+        """
+        Limpia el archivo de histórico FinOps. Pide confirmación antes de
+        ejecutar la acción (irreversible).
+        """
+        respuesta = QMessageBox.question(
+            self,
+            "Confirmar limpieza",
+            "Vas a borrar TODO el histórico de consumo de API.\n\n"
+            "Esta acción es irreversible y no se puede deshacer.\n\n"
+            "¿Continuar?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        if respuesta != QMessageBox.Yes:
+            return
+
+        try:
+            import finops
+            if finops.limpiar_historico():
+                QMessageBox.information(
+                    self, "Histórico limpiado",
+                    "El histórico de FinOps fue borrado correctamente."
+                )
+            else:
+                QMessageBox.warning(
+                    self, "Error",
+                    "No se pudo limpiar el histórico. Revisa la consola."
+                )
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"Error limpiando: {e}")
+
+        # Refrescar UI para mostrar el estado vacío
+        self._construir_modulo_finops()
 
     def _parsear_lista(self, texto: str) -> list:
         """Convierte un QTextEdit con una entrada por línea en lista limpia (lowercase)."""
@@ -2028,8 +2581,29 @@ class PopupConfiguraciones(QDialog):
             if modelo_nuevo:
                 cfg.setdefault("ia_modelos", {})[proveedor_activo] = modelo_nuevo
 
+            # Tema visual seleccionado
+            tema_id = self.combo_tema.currentData()
+            if tema_id and tema_id in temas.IDS_VALIDOS:
+                cfg["tema_visual"] = tema_id
+
             with open(self._ruta_config, "w", encoding="utf-8") as f:
                 json.dump(cfg, f, ensure_ascii=False, indent=2)
+
+            # Como el tema queda persistido en config, ya no necesitamos
+            # restaurar el "tema original" en reject(). Olvidamos el backup.
+            if hasattr(self, "_tema_original"):
+                del self._tema_original
+
+            # Aplicar tema en caliente a la ventana principal
+            widget_parent = self.parent()
+            while widget_parent is not None:
+                if hasattr(widget_parent, "_aplicar_estilo"):
+                    try:
+                        widget_parent._aplicar_estilo()
+                    except Exception:
+                        pass
+                    break
+                widget_parent = widget_parent.parent()
 
             # Aplicar en caliente — recargar config en gestor_chat
             if self.gestor_chat:
@@ -2059,7 +2633,7 @@ class PopupConfiguraciones(QDialog):
             QMessageBox.information(
                 self, "Guardado",
                 "Configuración guardada ✅\n\n"
-                "• Listas, días de contexto y prompt del agente: aplicados en caliente\n"
+                "• Listas, días de contexto, prompt del agente y tema visual: aplicados en caliente\n"
                 f"{msg_modelo}"
                 "• Días alerta inactividad: aplicarán en el próximo arranque"
             )

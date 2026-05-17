@@ -1,34 +1,22 @@
 {
-  "ia_proveedor": "claude",
-  "ia_api_keys": {
-    "claude": "",
-    "openai": "",
-    "gemini": ""
-  },
-  "ia_modelos": {
-    "claude": "claude-sonnet-4-6",
-    "openai": "gpt-4o",
-    "gemini": "gemini-3.1-pro-preview"
-  },
+  "api_key": "",
+  "modelo": "claude-sonnet-4-6",
   "ruta_base": "",
   "nombre_usuario": "",
   "app_bitacora": "obsidian",
   "ruta_obsidian_1": "",
   "ruta_obsidian_2": "",
-  "dias_contexto_chat": 7,
+  "dias_contexto_chat": 3,
   "system_prompt": "",
-  "ventana_anclada": false,
-  "monitor_captura": 1,
-
+  "ventana_anclada": true,
+  "tema_visual": "alto_contraste",
   "captura": {
-    "estabilidad_segundos": 5,
-    "intervalo_reunion_segundos": 120
+    "estabilidad_segundos": 20,
+    "intervalo_reunion_segundos": 300
   },
-
   "alertas": {
     "inactividad_dias": 3
   },
-
   "lista_blanca_procesos": [
     "dbeaver.exe",
     "PBIDesktop.exe",
@@ -114,5 +102,20 @@
     "call",
     "webex"
   ],
-  "proyectos": []
+  "proyectos": [],
+  "ia_api_keys": {
+    "claude": "",
+    "openai": "",
+    "gemini": ""
+  },
+  "ia_modelos": {
+    "claude": "claude-sonnet-4-6",
+    "openai": "gpt-4o",
+    "gemini": "gemini-2.5-flash"
+  },
+  "ia_proveedor": "claude",
+  "finops": {
+    "precios_override": {}
+  },
+  "monitor_captura": 1
 }

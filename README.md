@@ -46,12 +46,14 @@ Eres profesional del conocimiento. Saltas entre **DBeaver, Athena, Excel, Power 
 - 📸 **Toma screenshots** cuando una ventana se mantiene estable y se las envía al LLM con visión
 - 🤖 **Analiza la actividad**: qué herramienta usas, qué tarea haces, qué URLs son laborales
 - 📝 **Escribe entradas en Markdown** con wikilinks automáticos a herramientas, fuentes de datos y personas conocidas
-- 🏷️ **Reconoce notas estructuradas** que escribes tú (`@decision`, `@tarea`, `@acuerdo`, `@idea`, `@bloqueado`, `@ticket`, `@pendiente`, `@objeto`, `@diccionario`, `@persona`)
+- 🏷️ **Reconoce notas estructuradas** que escribes tú (`@decision`, `@tarea`, `@acuerdo`, `@idea`, `@bloqueado`, `@ticket`, `@pendiente`, `@objeto`, `@diccionario`, `@persona`) y las **acumula en archivos agregados por tipo** (`decisiones.md`, `tareas.md`, etc.)
 - 💾 **Extrae código** que pegues en notas (SQL, Python, Bash, JS, JSON, YAML) a archivos snippet separados con frontmatter
 - 📊 **Clasifica cada actividad por proyecto** usando un modelo rápido y barato del LLM
 - 📈 **Mantiene un Gantt global y un Gantt por proyecto** en Mermaid, listos para renderizar en Obsidian
 - 🗂️ **Genera MOCs (Map of Content)** por proyecto con métricas, snippets y resúmenes calculados localmente
-- 💬 **Chat conversacional** con contexto de las últimas N bitácoras + archivos de referencia curados
+- 💬 **Chat conversacional** con contexto de las últimas N bitácoras + archivos de referencia curados + carga condicional de archivos de task según la pregunta
+- 💸 **Monitor FinOps integrado**: tokens y costo de cada llamada al LLM, agrupado por tipo de operación
+- 🎨 **5 temas visuales** seleccionables (incluyendo alto contraste para accesibilidad)
 - ⚠️ **Alertas de inactividad** para proyectos activos abandonados hace varios días
 
 ---
@@ -102,6 +104,46 @@ Desde el botón **🗂 Gestionar proyectos** abres este popup para crear, editar
 ### 💬 Chat con contexto curado
 Pregúntale al agente *"¿cuánto avancé esta semana en Maestro Mallas?"* o *"resúmeme la reunión con Pablo del martes"*. Lee las últimas N bitácoras + archivos de referencia (`objetos.md`, `personas.md`, `diccionario_datos.md`, `proyectos_relevantes.md`) y responde con precisión. Incluye atajos rápidos: **resumen del día** y **resumen de la semana**, que puedes guardar de vuelta en la bitácora.
 
+Además, el chat **carga condicionalmente los archivos agregados de task** según tu pregunta. Si preguntas *"¿qué pendientes tengo?"* carga `pendientes.md`; si preguntas *"¿qué decidí esta semana?"* carga `decisiones.md`. El sistema detecta keywords (con tolerancia a tildes y mayúsculas) y solo trae lo necesario, optimizando tokens.
+
+### 🗃️ Archivos agregados por tipo de task
+Cada vez que escribes una nota estructurada con prefijo (`@decision`, `@tarea`, `@acuerdo`, `@idea`, `@bloqueado`, `@ticket`, `@pendiente`), la entrada se acumula en un **archivo agregado por tipo** dentro de tu vault:
+
+| Prefijo | Archivo agregado |
+|---|---|
+| `@decision:` | `decisiones.md` |
+| `@tarea:` | `tareas.md` |
+| `@acuerdo:` | `acuerdos.md` |
+| `@idea:` | `ideas.md` |
+| `@bloqueado:` | `bloqueados.md` |
+| `@ticket:` | `tickets.md` |
+| `@pendiente:` | `pendientes.md` |
+
+Estos archivos tienen formato cronológico (agrupado por día) con wikilinks a la bitácora donde se registró cada entrada. La línea sigue apareciendo en la bitácora del día como hasta ahora, solo se suma esta acumulación adicional para tener un "registro maestro" por tipo.
+
+### 💸 FinOps — Monitor de gasto de API
+Un módulo integrado en el popup de Configuraciones que muestra:
+- **Tarjetas Hoy / Este mes** con costo USD, llamadas y tokens.
+- **Desglose por tipo de operación**: captura de actividad, captura de reunión, clasificación de proyecto, chat usuario, resúmenes — con barras de porcentaje.
+- **Gráfico de 5 días** para ver tendencia.
+- **Modelo activo y sus precios** por millón de tokens, con fecha de última actualización.
+- **Override de precios** en `config.json` → `finops.precios_override`, por si los precios cambian.
+
+Los tokens se interceptan en cada llamada al LLM y se persisten agregados por día (archivo `bitacoras/finops_data.json`). FinOps nunca rompe el flujo principal: si algo falla, la llamada al LLM continúa normalmente.
+
+### 🎨 5 temas visuales seleccionables
+La interfaz soporta 5 temas (skins) cambiables desde Configuraciones, con vista previa en vivo antes de guardar:
+
+| Tema | Tipo | Caracterización |
+|---|---|---|
+| 🌙 Catppuccin Mocha | Oscuro azulado | Default — sofisticado, paleta pastel |
+| 🌿 Catppuccin Latte | Claro azulado | Versión clara para luz natural |
+| 🧛 Dracula | Oscuro violeta | Clásico para devs |
+| 🌊 Nord | Oscuro frío | Tonos escandinavos azul-gris |
+| ⚡ Alto contraste | Negro + verde fosforescente | Accesibilidad / fatiga visual |
+
+El cambio de tema se aplica en caliente a la ventana principal y al popup activo, sin reiniciar el agente. Si previsualizas y cancelas, vuelve al tema anterior automáticamente.
+
 ---
 
 ## 🏛 Arquitectura del proyecto
@@ -112,13 +154,15 @@ Pregúntale al agente *"¿cuánto avancé esta semana en Maestro Mallas?"* o *"r
 ├── 📄 agente.py                    # Orquestador principal
 ├── 📄 monitor.py                   # Detección híbrida de ventana activa
 ├── 📄 captura.py                   # Screenshot + análisis con LLM (visión + URLs)
-├── 📄 bitacora.py                  # Escritura .md + wikilinks + snippets + frontmatter
-├── 📄 chat.py                      # Chat conversacional con contexto curado
+├── 📄 bitacora.py                  # Escritura .md + wikilinks + snippets + frontmatter + archivos agregados por task
+├── 📄 chat.py                      # Chat conversacional con contexto curado + carga condicional de archivos task
 ├── 📄 gantt.py                     # Clasificación por proyecto + Gantt global
 ├── 📄 proyectos.py                 # MOCs por proyecto + Gantt individual + migración
-├── 📄 ventana.py                   # GUI PyQt5 + system tray + popups
+├── 📄 ventana.py                   # GUI PyQt5 + system tray + popups + selector de temas
 ├── 📄 popup_login.py               # Autenticación multi-proveedor
-├── 📄 cliente_ia.py                # Abstracción Claude / OpenAI / Gemini
+├── 📄 cliente_ia.py                # Abstracción Claude / OpenAI / Gemini + interceptor FinOps
+├── 📄 finops.py                    # Monitor de gasto API: tokens, costo, agregados diarios
+├── 📄 temas.py                     # Catálogo de 5 temas visuales (skins)
 ├── 📄 utils.py                     # Carga de config + detección de Obsidian
 ├── 📄 limpiar_wikilinks_herramientas.py   # Script de limpieza retroactiva
 │
@@ -137,6 +181,19 @@ Pregúntale al agente *"¿cuánto avancé esta semana en Maestro Mallas?"* o *"r
     ├── bitacora_YYYY-MM-DD.md          # Bitácora diaria
     ├── gantt_proyectos.md              # Gantt global Mermaid
     ├── gantt_data.json                 # Datos crudos del Gantt
+    ├── finops_data.json                # Datos crudos de FinOps (agregados por día)
+    │
+    ├── objetos.md                      # Registro de objetos (@objeto:)
+    ├── personas.md                     # Registro de personas (@persona:)
+    ├── diccionario_datos.md            # Diccionario (@diccionario:)
+    │
+    ├── decisiones.md                   # Archivos agregados por tipo de task
+    ├── tareas.md                       # (cronológicos, agrupados por día,
+    ├── acuerdos.md                     #  con wikilinks a la bitácora origen)
+    ├── ideas.md
+    ├── bloqueados.md
+    ├── tickets.md
+    ├── pendientes.md
     │
     ├── 📁 proyectos/                   # Un .md por proyecto (MOCs)
     │   ├── Maestro_Mallas.md
@@ -231,20 +288,24 @@ Pregúntale al agente *"¿cuánto avancé esta semana en Maestro Mallas?"* o *"r
 
 ## 🏷️ Notas estructuradas
 
-Mientras trabajas, puedes escribir notas rápidas en el campo de entrada. Si empiezas con uno de estos prefijos, la nota se etiqueta y aparece destacada al inicio de la bitácora:
+Mientras trabajas, puedes escribir notas rápidas en el campo de entrada. Si empiezas con uno de estos prefijos, la nota se etiqueta y aparece destacada al inicio de la bitácora **y** se acumula en un archivo agregado por tipo:
 
-| Prefijo | Uso |
-|---|---|
-| `@decision:` | Decisiones tomadas durante la jornada |
-| `@tarea:` | Tareas que surgen y debes hacer después |
-| `@acuerdo:` | Acuerdos cerrados en reuniones |
-| `@idea:` | Ideas o hipótesis para retomar |
-| `@bloqueado:` | Bloqueos que impiden avanzar |
-| `@ticket:` | Tickets, IDs de incidencias |
-| `@pendiente:` | Cosas que quedan abiertas al cierre |
-| `@objeto:` | Registrar un nuevo objeto (tabla, vista) en `objetos.md` |
-| `@diccionario:` | Registrar un concepto/sigla en `diccionario_datos.md` |
-| `@persona:` | Registrar una persona nueva en `personas.md` |
+| Prefijo | Uso | Archivo agregado |
+|---|---|---|
+| `@decision:` | Decisiones tomadas durante la jornada | `decisiones.md` |
+| `@tarea:` | Tareas que surgen y debes hacer después | `tareas.md` |
+| `@acuerdo:` | Acuerdos cerrados en reuniones | `acuerdos.md` |
+| `@idea:` | Ideas o hipótesis para retomar | `ideas.md` |
+| `@bloqueado:` | Bloqueos que impiden avanzar | `bloqueados.md` |
+| `@ticket:` | Tickets, IDs de incidencias | `tickets.md` |
+| `@pendiente:` | Cosas que quedan abiertas al cierre | `pendientes.md` |
+| `@objeto:` | Registrar un nuevo objeto (tabla, vista) | `objetos.md` (upsert por nombre) |
+| `@diccionario:` | Registrar un concepto/sigla | `diccionario_datos.md` (upsert por nombre) |
+| `@persona:` | Registrar una persona nueva | `personas.md` (upsert por nombre) |
+
+Los **archivos agregados** son cronológicos: cada entrada nueva se suma como una línea bajo la sección del día (`## YYYY-MM-DD`), con un wikilink a la bitácora de origen. Esto permite consultar todo el histórico por tipo (ej. *"¿qué decisiones tomé este mes?"*).
+
+Los archivos de **referencia** (`objetos.md`, `personas.md`, `diccionario_datos.md`) usan upsert por nombre: si registras el mismo objeto dos veces, se actualiza, no se duplica.
 
 Si pegas código (≥2 líneas) en una nota, el agente detecta el lenguaje automáticamente, extrae el snippet a su propio archivo `.md` y lo enlaza desde la bitácora y el MOC del proyecto.
 
@@ -403,6 +464,8 @@ El popup de **Configuraciones** te deja editar todo sin tocar JSON: las listas b
 | `captura.estabilidad_segundos` | Segundos que una ventana debe estar activa antes de capturar |
 | `captura.intervalo_reunion_segundos` | Frecuencia de recapturas durante reuniones |
 | `alertas.inactividad_dias` | Días de inactividad antes de alertar sobre un proyecto |
+| `tema_visual` | Tema visual activo (`mocha`, `latte`, `dracula`, `nord`, `alto_contraste`) |
+| `finops.precios_override` | Override de precios por modelo en USD/M tokens, ej. `{"claude-sonnet-4-6": [3.00, 15.00]}` |
 | `lista_blanca_procesos` / `lista_negra_procesos` | Filtros por `.exe` |
 | `palabras_clave_laborales_browser` / `keywords_bloqueadas_browser` | Filtros para browsers/UWP |
 | `palabras_clave_reunion` | Disparadores del modo reunión |
@@ -422,7 +485,7 @@ El popup de **Configuraciones** te deja editar todo sin tocar JSON: las listas b
 | Detección de procesos | `psutil` |
 | Captura multi-monitor | `mss` |
 | Procesamiento de imágenes | `Pillow` |
-| Interfaz gráfica | `PyQt5` (tema Catppuccin Mocha) |
+| Interfaz gráfica | `PyQt5` (5 temas seleccionables: Catppuccin Mocha/Latte, Dracula, Nord, Alto contraste) |
 | Almacenamiento | Markdown + YAML frontmatter + Mermaid (compatible Obsidian) |
 | Configuración | JSON |
 
@@ -437,17 +500,21 @@ El popup de **Configuraciones** te deja editar todo sin tocar JSON: las listas b
 - [x] Wikilinks automáticos para herramientas, fuentes y personas
 - [x] Frontmatter YAML calculado localmente al cierre del día
 - [x] Notas estructuradas con prefijos `@` + autocompletado
+- [x] Archivos agregados por tipo de task (`decisiones.md`, `tareas.md`, etc.) cronológicos por día
 - [x] Detección automática de código y extracción a snippets
 - [x] Clasificación de actividades por proyecto con modelo rápido
 - [x] Gantt global y por proyecto en Mermaid
 - [x] MOCs por proyecto con métricas, snippets y resumen
 - [x] Migración retroactiva de bitácoras antiguas a proyectos
 - [x] Chat conversacional con contexto curado de bitácoras
+- [x] Carga condicional de archivos de task en el chat según keywords de la pregunta
 - [x] Resúmenes automáticos del día y la semana
 - [x] Alertas de inactividad por proyecto
-- [x] Sistema tray + anclaje always-on-top + tema dark
+- [x] Sistema tray + anclaje always-on-top
 - [x] Filtrado por monitor físico
 - [x] Configuración completa desde UI (sin tocar JSON)
+- [x] Monitor FinOps integrado (tokens, costo, desglose por tipo)
+- [x] 5 temas visuales (skins) seleccionables con vista previa en caliente
 - [ ] Exportación de bitácora a PDF / Excel
 - [ ] Empaquetado como `.exe` standalone (PyInstaller)
 - [ ] Modo móvil para revisar bitácoras desde el celular

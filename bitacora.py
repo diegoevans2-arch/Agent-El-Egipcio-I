@@ -1209,10 +1209,17 @@ class GestorBitacora:
                     print(f"[Bitácora] @{tipo} sin nombre válido — guardado como nota normal")
                     return
 
-            # Otros tipos estructurados: formato visual normal
+            # Otros tipos estructurados: formato visual normal en bitácora
+            # del día. Adicionalmente, si el tipo tiene archivo agregado
+            # asignado (decision, tarea, acuerdo, idea, bloqueado, ticket,
+            # pendiente), se acumula también en su archivo correspondiente.
             linea = _formatear_nota_estructurada(tipo, contenido_estr, hora_str)
             with open(self.ruta, "a", encoding="utf-8") as f:
                 f.write(linea + "\n")
+
+            if tipo in _ARCHIVOS_TASK and contenido_estr.strip():
+                agregar_task_a_archivo(tipo, contenido_estr.strip())
+
             print(f"[Bitácora] Nota estructurada agregada: @{tipo}")
             return
 
@@ -1372,6 +1379,28 @@ _TIPOS_NOTA_ESTRUCTURADA = {
     "objeto":      {"emoji": "📚", "etiqueta": "OBJETO",      "tag": "objeto"},
     "diccionario": {"emoji": "📖", "etiqueta": "DICCIONARIO", "tag": "diccionario"},
     "persona":     {"emoji": "👤", "etiqueta": "PERSONA",     "tag": "persona"},
+}
+
+
+# ---------------------------------------------------------------------------
+# Archivos agregados por tipo de task
+# ---------------------------------------------------------------------------
+# Cada vez que el usuario registra un task con uno de estos prefijos, además
+# de escribirse la línea en la bitácora del día, la misma entrada se acumula
+# en un archivo agregado dedicado en bitacoras/. Esto permite tener un
+# "registro maestro" por tipo (todas las decisiones, todas las tareas, etc.)
+# que el chat puede cargar como contexto cuando el usuario pregunte por ello.
+#
+# NO incluye objeto/diccionario/persona porque esos ya tienen su propio
+# archivo con lógica distinta (upsert por nombre).
+_ARCHIVOS_TASK = {
+    "decision":  ("decisiones.md", "✅ Decisiones",  "registro-decisiones"),
+    "tarea":     ("tareas.md",     "⏳ Tareas",      "registro-tareas"),
+    "acuerdo":   ("acuerdos.md",   "🤝 Acuerdos",    "registro-acuerdos"),
+    "idea":      ("ideas.md",      "💡 Ideas",       "registro-ideas"),
+    "bloqueado": ("bloqueados.md", "🚧 Bloqueados",  "registro-bloqueados"),
+    "ticket":    ("tickets.md",    "🎫 Tickets",     "registro-tickets"),
+    "pendiente": ("pendientes.md", "📌 Pendientes",  "registro-pendientes"),
 }
 
 
@@ -1894,3 +1923,173 @@ def agregar_concepto_a_diccionario(concepto: str, descripcion: str = "") -> bool
 def agregar_persona_a_md(nombre: str, descripcion: str = "") -> bool:
     """Agrega o actualiza una persona en bitacoras/personas.md"""
     return _agregar_a_registro("personas", nombre, descripcion)
+
+
+# ===========================================================================
+# Fase 6: Archivos agregados por tipo de task
+# ===========================================================================
+# Cada vez que el usuario registra @decision/@tarea/@acuerdo/@idea/
+# @bloqueado/@ticket/@pendiente, la entrada se acumula en su archivo
+# agregado (bitacoras/decisiones.md, bitacoras/tareas.md, etc.) además
+# de escribirse en la bitácora del día.
+#
+# Formato del archivo agregado (Opción A — cronológico por día):
+#
+#     ---
+#     tipo: registro-tareas
+#     ultima_actualizacion: 2026-05-10
+#     tags: [registro, tareas]
+#     ---
+#
+#     # ⏳ Tareas
+#
+#     > Registro de todas las tareas detectadas en bitácoras.
+#
+#     ## 2026-05-10
+#     - ⏳ revisar query de matrículas — [[bitacora_2026-05-10]]
+#     - ⏳ subir reporte a SharePoint — [[bitacora_2026-05-10]]
+#
+#     ## 2026-05-09
+#     - ⏳ validar Maestro Mallas — [[bitacora_2026-05-09]]
+#
+# Las secciones de día se ordenan cronológicamente descendente (hoy arriba).
+# No se hace upsert: cada @tarea es una entrada nueva aunque el texto
+# coincida con otra previa.
+# ---------------------------------------------------------------------------
+
+
+def _ruta_archivo_task(tipo: str) -> Path:
+    """Retorna la ruta del archivo agregado para un tipo de task."""
+    config = cargar_config()
+    nombre_archivo = _ARCHIVOS_TASK[tipo][0]
+    return Path(config["ruta_base"]) / "bitacoras" / nombre_archivo
+
+
+def _crear_archivo_task_vacio(ruta: Path, tipo: str) -> str:
+    """
+    Genera el contenido inicial del archivo agregado de tasks (sin entradas).
+    Frontmatter + cabecera + intro. Sin secciones de día aún.
+    """
+    _, h1, tipo_yaml = _ARCHIVOS_TASK[tipo]
+    fecha_str = datetime.now().strftime("%Y-%m-%d")
+    nombre_plural = h1.split(" ", 1)[1].lower()  # "Decisiones" -> "decisiones"
+    return (
+        "---\n"
+        f"tipo: {tipo_yaml}\n"
+        f"ultima_actualizacion: {fecha_str}\n"
+        f"tags: [registro, {tipo}]\n"
+        "---\n"
+        "\n"
+        f"# {h1}\n"
+        "\n"
+        f"> Registro cronológico de {nombre_plural} detectadas en bitácoras.\n"
+        f"> Se agrega automáticamente al usar el prefijo `@{tipo}:` en notas.\n"
+        "\n"
+        "---\n"
+        "\n"
+    )
+
+
+def _actualizar_frontmatter_ultima(contenido: str, fecha_str: str) -> str:
+    """
+    Reemplaza el valor de `ultima_actualizacion:` en el frontmatter del
+    archivo. Si no existe el campo, devuelve el contenido sin cambios.
+    """
+    return re.sub(
+        r"^(ultima_actualizacion:\s*)\S+",
+        rf"\g<1>{fecha_str}",
+        contenido,
+        count=1,
+        flags=re.MULTILINE,
+    )
+
+
+def agregar_task_a_archivo(tipo: str, texto: str) -> bool:
+    """
+    Agrega una entrada al archivo agregado del tipo de task.
+
+    Comportamiento:
+    - Si el archivo no existe → lo crea con cabecera.
+    - Si ya existe la sección de hoy (## YYYY-MM-DD) → agrega la línea al
+      final de esa sección (orden cronológico de inserción).
+    - Si no existe la sección de hoy → la inserta como primera (más reciente
+      arriba).
+    - No hace upsert: cada llamada agrega una nueva línea, aunque el texto
+      sea idéntico a una previa.
+
+    Args:
+        tipo: clave de _ARCHIVOS_TASK (decision, tarea, acuerdo, idea,
+              bloqueado, ticket, pendiente).
+        texto: contenido literal de la entrada (lo que el usuario escribió
+               después de "@tipo: ").
+
+    Returns:
+        True si se escribió correctamente, False si hubo error.
+    """
+    if tipo not in _ARCHIVOS_TASK:
+        return False
+
+    texto_limpio = (texto or "").strip()
+    if not texto_limpio:
+        return False
+
+    try:
+        ruta = _ruta_archivo_task(tipo)
+        ruta.parent.mkdir(parents=True, exist_ok=True)
+
+        fecha_str = datetime.now().strftime("%Y-%m-%d")
+        emoji = _TIPOS_NOTA_ESTRUCTURADA[tipo]["emoji"]
+        linea_nueva = f"- {emoji} {texto_limpio} — [[bitacora_{fecha_str}]]"
+        seccion_hoy = f"## {fecha_str}"
+
+        if not ruta.exists():
+            # Crear archivo desde cero con la primera entrada del día
+            base = _crear_archivo_task_vacio(ruta, tipo)
+            contenido_final = base + seccion_hoy + "\n" + linea_nueva + "\n"
+            ruta.write_text(contenido_final, encoding="utf-8")
+            print(f"[Bitácora] @{tipo}: archivo creado y entrada agregada")
+            return True
+
+        # Archivo ya existe: leer, decidir dónde insertar
+        contenido = ruta.read_text(encoding="utf-8")
+
+        if seccion_hoy in contenido:
+            # Hay sección de hoy: insertar la línea al final de ese bloque
+            # Patrón: capturamos la sección de hoy hasta la próxima ## o fin
+            patron = re.compile(
+                r"(" + re.escape(seccion_hoy) + r".*?)(?=^## |\Z)",
+                flags=re.DOTALL | re.MULTILINE,
+            )
+            def _append_linea(m):
+                bloque = m.group(1).rstrip()
+                return bloque + "\n" + linea_nueva + "\n\n"
+            contenido_nuevo = patron.sub(_append_linea, contenido, count=1)
+        else:
+            # No hay sección de hoy: insertarla al inicio (después del
+            # separador `---` que sigue al frontmatter+cabecera). Si por
+            # alguna razón no hay separador, la pegamos al final del
+            # preámbulo, antes de las demás secciones.
+            bloque_nuevo = seccion_hoy + "\n" + linea_nueva + "\n\n"
+            # Buscar la primera línea "## YYYY-..." (sección de día existente)
+            m_primera_seccion = re.search(
+                r"^## \d{4}-\d{2}-\d{2}", contenido, flags=re.MULTILINE
+            )
+            if m_primera_seccion:
+                idx = m_primera_seccion.start()
+                contenido_nuevo = (
+                    contenido[:idx].rstrip() + "\n\n" + bloque_nuevo + contenido[idx:]
+                )
+            else:
+                # No hay secciones de día aún: agregar al final
+                contenido_nuevo = contenido.rstrip() + "\n\n" + bloque_nuevo
+
+        # Actualizar campo ultima_actualizacion en el frontmatter
+        contenido_nuevo = _actualizar_frontmatter_ultima(contenido_nuevo, fecha_str)
+
+        ruta.write_text(contenido_nuevo, encoding="utf-8")
+        print(f"[Bitácora] @{tipo}: entrada agregada en {ruta.name}")
+        return True
+
+    except Exception as e:
+        print(f"[Bitácora] Error al agregar @{tipo} a archivo: {e}")
+        return False

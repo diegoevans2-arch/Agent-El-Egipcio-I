@@ -186,8 +186,11 @@ Responde SOLO con JSON válido (sin markdown, sin backticks):
 
     try:
         cliente = get_cliente()
+        # FinOps: distinguimos capturas de reunión vs actividad normal
+        tipo_op = "captura_reunion" if es_reunion else "captura_actividad"
         # Subo levemente max_tokens porque ahora también puede haber URLs
-        texto = cliente.analizar_imagen(prompt, imagen_b64, max_tokens=400)
+        texto = cliente.analizar_imagen(prompt, imagen_b64, max_tokens=400,
+                                         tipo_operacion=tipo_op)
         # Limpiar posibles bloques markdown
         texto = texto.replace("```json", "").replace("```", "").strip()
         resultado = json.loads(texto)

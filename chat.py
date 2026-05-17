@@ -6,6 +6,7 @@ Lee los archivos .md relevantes y llama a Claude API para responder.
 
 import re
 import threading
+import unicodedata
 from pathlib import Path
 from datetime import datetime, timedelta
 
@@ -27,6 +28,11 @@ Tienes acceso a:
    - <diccionario_datos>: conceptos, siglas y términos del dominio.
    - <proyectos_relevantes>: descripción oficial de los proyectos que aparecen
      en las bitácoras del período.
+   - Bloques de tasks que pueden aparecer SOLO cuando la pregunta los menciona:
+     <decisiones>, <tareas>, <acuerdos>, <ideas>, <bloqueados>, <tickets>,
+     <pendientes>. Cada uno acumula el histórico completo de ese tipo,
+     agrupado por día. Si {nombre_usuario} pregunta "¿qué pendientes tengo?",
+     el bloque <pendientes> traerá todo el histórico de pendientes registrados.
    Usa estos archivos como fuente de verdad sobre QUÉ son los objetos, QUIÉN
    es cada persona y QUÉ significan los conceptos cuando aparezcan en las
    bitácoras.
@@ -201,11 +207,94 @@ def _construir_bloque_proyectos_relevantes(nombres_proyectos: list, config: dict
     return "\n".join(lineas).rstrip()
 
 
-def _construir_contexto_referencia(contenido_bitacoras: str) -> str:
+# ---------------------------------------------------------------------------
+# Detección de archivos de tasks solicitados por la pregunta del usuario
+# ---------------------------------------------------------------------------
+# Los archivos agregados de tasks (decisiones.md, tareas.md, etc.) pueden
+# crecer indefinidamente. Para no inflar el contexto del LLM con archivos
+# históricos en cada turno, solo se cargan cuando la pregunta del usuario
+# menciona explícitamente alguno de ellos por palabras clave.
+#
+# Ej: "¿qué pendientes tengo?" → carga pendientes.md completo.
+#     "resume mi día"           → no carga ninguno (ya las bitácoras los muestran).
+#
+# Las bitácoras siempre se cargan, así que las entradas recientes
+# (líneas tipo "📌 PENDIENTE (10:30): ...") quedan visibles para el LLM
+# aunque el archivo agregado no se cargue. Lo que se gana cargando el
+# archivo agregado es el histórico completo.
+
+_KEYWORDS_TASK_POR_TIPO = {
+    "tarea":     ["tarea", "tareas", "task", "tasks", "por hacer",
+                  "pendiente de hacer"],
+    "pendiente": ["pendiente", "pendientes"],
+    "decision":  ["decision", "decisiones", "decidi", "decidimos",
+                  "defini", "definimos"],
+    "idea":      ["idea", "ideas"],
+    "acuerdo":   ["acuerdo", "acuerdos"],
+    "bloqueado": ["bloqueo", "bloqueos", "bloqueado", "bloqueados",
+                  "bloqueante", "trabado"],
+    "ticket":    ["ticket", "tickets", "jira", "incidente"],
+}
+
+# Mapeo tipo → (archivo, tag XML para el LLM)
+_TASK_ARCHIVO_Y_TAG = {
+    "decision":  ("decisiones.md", "decisiones"),
+    "tarea":     ("tareas.md",     "tareas"),
+    "acuerdo":   ("acuerdos.md",   "acuerdos"),
+    "idea":      ("ideas.md",      "ideas"),
+    "bloqueado": ("bloqueados.md", "bloqueados"),
+    "ticket":    ("tickets.md",    "tickets"),
+    "pendiente": ("pendientes.md", "pendientes"),
+}
+
+
+def _normalizar_texto(texto: str) -> str:
+    """
+    Normaliza para matching de keywords: minúsculas + sin tildes.
+    Ej: "¿Qué Decisión tomé?" → "que decision tome"
+    """
+    if not texto:
+        return ""
+    # NFD descompone caracteres con tilde, luego filtramos los diacríticos
+    normalizado = unicodedata.normalize("NFD", texto.lower())
+    return "".join(c for c in normalizado if unicodedata.category(c) != "Mn")
+
+
+def _detectar_archivos_task_solicitados(pregunta: str) -> list:
+    """
+    Detecta qué tipos de task fueron mencionados en la pregunta del usuario
+    mediante búsqueda de keywords (case-insensitive, sin tildes).
+
+    Retorna la lista de tipos (en el orden definido en _KEYWORDS_TASK_POR_TIPO).
+    Lista vacía si no se detectó ninguno.
+    """
+    if not pregunta:
+        return []
+
+    pregunta_norm = _normalizar_texto(pregunta)
+    detectados = []
+
+    for tipo, keywords in _KEYWORDS_TASK_POR_TIPO.items():
+        for kw in keywords:
+            # Usamos \b para evitar matches dentro de otras palabras
+            # (ej: "ideal" no debería matchear "idea")
+            patron = r"\b" + re.escape(_normalizar_texto(kw)) + r"\b"
+            if re.search(patron, pregunta_norm):
+                detectados.append(tipo)
+                break  # ya match con este tipo, no probar más keywords
+
+    return detectados
+
+
+def _construir_contexto_referencia(contenido_bitacoras: str,
+                                    pregunta: str = None) -> str:
     """
     Construye el bloque <contexto_referencia> con:
       - objetos.md, personas.md, diccionario_datos.md (siempre completos)
       - Descripciones de proyectos mencionados en las bitácoras del período
+      - Archivos agregados de tasks (decisiones.md, tareas.md, etc.) SOLO
+        si la pregunta del usuario los menciona por keyword. Para resúmenes
+        diarios/semanales pasamos pregunta=None y no se cargan.
 
     Retorna un string XML-like con secciones etiquetadas para que el LLM
     diferencie cada bloque.
@@ -222,6 +311,19 @@ def _construir_contexto_referencia(contenido_bitacoras: str) -> str:
         nombres_proyectos, config
     )
 
+    # Archivos de tasks: solo si la pregunta los menciona
+    tipos_tasks_solicitados = _detectar_archivos_task_solicitados(pregunta or "")
+    bloques_tasks = []
+    for tipo in tipos_tasks_solicitados:
+        nombre_archivo, tag_xml = _TASK_ARCHIVO_Y_TAG[tipo]
+        contenido_task = _leer_archivo_referencia(ruta_base / nombre_archivo)
+        bloques_tasks.append(
+            f"<{tag_xml}>\n{contenido_task}\n</{tag_xml}>"
+        )
+    bloques_tasks_str = "\n\n".join(bloques_tasks)
+    if bloques_tasks_str:
+        bloques_tasks_str = bloques_tasks_str + "\n\n"
+
     bloque = (
         "<contexto_referencia>\n"
         "<objetos>\n"
@@ -233,17 +335,24 @@ def _construir_contexto_referencia(contenido_bitacoras: str) -> str:
         "<diccionario_datos>\n"
         f"{diccionario}\n"
         "</diccionario_datos>\n\n"
+        f"{bloques_tasks_str}"
         "<proyectos_relevantes>\n"
         f"{bloque_proyectos}\n"
         "</proyectos_relevantes>\n"
         "</contexto_referencia>"
     )
 
-    # Log informativo (útil para depurar y verificar que se está cargando bien)
+    # Log informativo
     n_proy = len(nombres_proyectos)
+    tasks_log = (
+        f"+ {len(tipos_tasks_solicitados)} archivo(s) de tasks "
+        f"({', '.join(tipos_tasks_solicitados)}) "
+        if tipos_tasks_solicitados else ""
+    )
     print(
         f"[Chat] Contexto referencia: objetos + personas + diccionario "
-        f"+ {n_proy} proyecto(s) ({', '.join(nombres_proyectos) if nombres_proyectos else '—'})"
+        f"{tasks_log}+ {n_proy} proyecto(s) "
+        f"({', '.join(nombres_proyectos) if nombres_proyectos else '—'})"
     )
 
     return bloque
@@ -338,17 +447,20 @@ class GestorChat:
             print(f"[Chat] ⚠ SYSTEM_PROMPT default falló al formatear: {e}")
             return SYSTEM_PROMPT
 
-    def _construir_contexto_bitacoras(self) -> str:
+    def _construir_contexto_bitacoras(self, pregunta: str = None) -> str:
         """
         Retorna el bloque completo de contexto que se envía al LLM:
         archivos de referencia + bitácoras del período.
 
         El bloque de referencia (objetos, personas, diccionario, proyectos)
-        se calcula a partir del contenido de las bitácoras leídas, para
-        filtrar solo los proyectos efectivamente mencionados.
+        se calcula a partir del contenido de las bitácoras leídas. Si se
+        pasa `pregunta`, además se cargan los archivos agregados de tasks
+        cuya keyword aparezca en la pregunta del usuario.
         """
         contenido_bitacoras = _leer_bitacoras(self.dias_contexto)
-        bloque_referencia = _construir_contexto_referencia(contenido_bitacoras)
+        bloque_referencia = _construir_contexto_referencia(
+            contenido_bitacoras, pregunta=pregunta
+        )
 
         return (
             f"{bloque_referencia}\n\n"
@@ -371,7 +483,10 @@ class GestorChat:
         """
         def _worker():
             try:
-                contexto = self._construir_contexto_bitacoras()
+                # Pasamos la pregunta al armado del contexto para que los
+                # archivos agregados de tasks (decisiones, tareas, etc.) se
+                # carguen solo cuando la pregunta menciona alguno por keyword.
+                contexto = self._construir_contexto_bitacoras(pregunta=pregunta)
 
                 # 1. Construir el mensaje que se ENVÍA al LLM en este turno
                 #    (con contexto fresco antepuesto a la pregunta).
@@ -390,7 +505,8 @@ class GestorChat:
                 texto = cliente.chat(
                     system=self._construir_system(),
                     mensajes=mensajes_envio,
-                    max_tokens=1000
+                    max_tokens=1000,
+                    tipo_operacion="chat_usuario"
                 )
 
                 # 3. Guardar en el historial la pregunta LIMPIA + respuesta,
@@ -440,7 +556,8 @@ class GestorChat:
                 resumen = cliente.chat(
                     system=self._construir_system(),
                     mensajes=[{"role": "user", "content": mensaje}],
-                    max_tokens=1500
+                    max_tokens=1500,
+                    tipo_operacion="resumen_dia"
                 )
 
                 # Guardar en bitácora del día
@@ -488,7 +605,8 @@ class GestorChat:
                 resumen = cliente.chat(
                     system=self._construir_system(),
                     mensajes=[{"role": "user", "content": mensaje}],
-                    max_tokens=2000
+                    max_tokens=2000,
+                    tipo_operacion="resumen_semana"
                 )
                 _guardar_resumen_en_bitacora(resumen)
 
