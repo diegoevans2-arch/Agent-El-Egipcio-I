@@ -10,7 +10,7 @@ import unicodedata
 from pathlib import Path
 from datetime import datetime, timedelta
 
-from utils import cargar_config
+from utils import cargar_config, ruta_bitacoras, ruta_task, ruta_solicitudes, ruta_manuales
 from cliente_ia import get_cliente
 
 
@@ -26,6 +26,10 @@ Tienes acceso a:
    - <objetos>: tablas, vistas y objetos del trabajo con sus descripciones.
    - <personas>: personas del entorno laboral (jefes, pares, contrapartes).
    - <diccionario_datos>: conceptos, siglas y términos del dominio.
+   - <data_request>: registro de solicitudes de información recibidas vía Teams,
+     procesadas por webhook Teams → Power Automate → GitHub. Contiene el estado
+     de cada solicitud (completado/pendiente), el solicitante, fecha, y el
+     mensaje original. Cargado siempre completo como referencia permanente.
    - <proyectos_relevantes>: descripción oficial de los proyectos que aparecen
      en las bitácoras del período.
    - Bloques de tasks que pueden aparecer SOLO cuando la pregunta los menciona:
@@ -95,8 +99,7 @@ Estructura el resumen así:
 
 def _leer_bitacoras(dias: int) -> str:
     """Lee las bitácoras de los últimos N días y las concatena."""
-    config = cargar_config()
-    ruta_base = Path(config["ruta_base"]) / "bitacoras"
+    ruta_base = ruta_bitacoras()
 
     if not ruta_base.exists():
         return "No se encontraron bitácoras."
@@ -170,11 +173,14 @@ def _leer_archivo_referencia(ruta: Path) -> str:
 
 def _construir_bloque_proyectos_relevantes(nombres_proyectos: list, config: dict) -> str:
     """
-    Para cada proyecto mencionado en bitácoras, busca su descripción en
-    config.proyectos[].palabras_clave y arma un bloque markdown.
+    Para cada proyecto mencionado en bitácoras, busca su descripción y
+    objetivos en config.proyectos[] y arma un bloque markdown.
 
     Si un proyecto está en bitácoras pero no en config (raro, pero posible),
     se omite silenciosamente.
+
+    Para retrocompatibilidad: si un proyecto solo tiene `palabras_clave`
+    (legacy) y no tiene `descripcion`, ese campo se usa como descripción.
     """
     if not nombres_proyectos:
         return "_(sin proyectos referenciados en las bitácoras del período)_"
@@ -189,17 +195,26 @@ def _construir_bloque_proyectos_relevantes(nombres_proyectos: list, config: dict
         proy = indice.get(nombre.lower())
         if not proy:
             continue
-        descripcion = (proy.get("palabras_clave") or "").strip()
+        # Fallback descripción: nuevo campo, luego palabras_clave legacy
+        descripcion = (proy.get("descripcion") or proy.get("palabras_clave") or "").strip()
+        objetivos = (proy.get("objetivos") or "").strip()
         estado = (proy.get("estado") or "").strip()
+
         lineas.append(f"## {nombre}")
         if estado:
             lineas.append(f"_Estado: {estado}_")
         lineas.append("")
         if descripcion:
+            lineas.append("**Descripción:**")
             lineas.append(descripcion)
+            lineas.append("")
         else:
             lineas.append("_(sin descripción registrada en config)_")
-        lineas.append("")
+            lineas.append("")
+        if objetivos:
+            lineas.append("**Objetivos específicos:**")
+            lineas.append(objetivos)
+            lineas.append("")
 
     if not lineas:
         return "_(proyectos mencionados sin descripción en config)_"
@@ -246,6 +261,108 @@ _TASK_ARCHIVO_Y_TAG = {
     "ticket":    ("tickets.md",    "tickets"),
     "pendiente": ("pendientes.md", "pendientes"),
 }
+
+# ---------------------------------------------------------------------------
+# Manuales del agente: documentación cargable bajo demanda
+# ---------------------------------------------------------------------------
+# La carpeta de manuales se resuelve vía utils.ruta_manuales() (nombre real:
+# "Manuales de Uso del Agente", en la raíz del vault). El usuario coloca ahí
+# los .md que quiera que el agente pueda leer cuando le pregunten sobre su
+# propio funcionamiento.
+
+# Keywords que disparan la carga de los manuales. Cubren preguntas sobre
+# funcionamiento, configuración y features del agente.
+# NOTA: la detección normaliza sin tildes y en minúsculas, por lo que
+# "configuración" se compara como "configuracion". Se incluyen variantes
+# de conjugación y plurales comunes para robustecer el matching.
+_KEYWORDS_MANUALES = [
+    # Nombres del agente
+    "agente", "el egypcio", "el egipcio", "egypcio", "egipcio",
+    # Funcionamiento general
+    "como funciona", "como funcionas", "que haces", "que puedes hacer",
+    "como te uso", "como uso el agente", "manual", "manuales",
+    "documentacion del agente", "ayuda del agente",
+    # Features específicas
+    "temperatura", "prompt de clasificacion", "clasificacion",
+    "wikilink", "wikilinks", "snippet", "snippets",
+    "finops", "costo de api", "gasto de api", "uso de api", "api",
+    "tema visual", "temas visuales", "skin", "skins",
+    "lista blanca", "listas blancas", "lista negra", "listas negras",
+    "gantt", "diagrama gantt",
+    "nota estructurada", "notas estructuradas", "prefijo", "prefijos",
+    "bitacora", "bitacoras",
+    "captura", "capturas", "screenshot",
+    "monitor", "multi monitor", "multimonitor",
+    "chat conversacional",
+    "obsidian", "vault",
+    # Configuración (incluye conjugaciones comunes)
+    "configurar", "configuro", "configura", "configuracion", "configuraciones",
+    "config json", "config.json",
+    # Troubleshooting
+    "no funciona", "no detecta", "no clasifica", "error del agente",
+    "problema con el agente",
+]
+
+
+def _detectar_pregunta_sobre_agente(pregunta: str) -> bool:
+    """
+    Detecta si la pregunta del usuario se refiere al funcionamiento,
+    configuración o features del agente.
+
+    Usa la misma normalización sin tildes que el detector de tasks.
+    Retorna True si al menos una keyword matchea con word boundaries.
+    """
+    if not pregunta:
+        return False
+
+    pregunta_norm = _normalizar_texto(pregunta)
+
+    for kw in _KEYWORDS_MANUALES:
+        # Word boundaries para evitar matches dentro de palabras
+        patron = r"\b" + re.escape(_normalizar_texto(kw)) + r"\b"
+        if re.search(patron, pregunta_norm):
+            return True
+
+    return False
+
+
+def _cargar_manuales_agente() -> str:
+    """
+    Lee todos los archivos .md de la carpeta de manuales del agente
+    ("Manuales de Uso del Agente" en la raíz del vault) y los concatena
+    en un solo string, cada uno precedido por su nombre de archivo.
+
+    Si la carpeta no existe, la crea vacía y retorna un placeholder.
+    Si no tiene archivos .md, retorna un placeholder.
+
+    Ordena los archivos alfabéticamente para consistencia entre corridas.
+    """
+    carpeta = ruta_manuales()
+
+    archivos = sorted(carpeta.glob("*.md"))
+    if not archivos:
+        return (
+            "_(La carpeta de manuales está vacía. "
+            "Coloca archivos .md en la carpeta 'Manuales de Uso del Agente' "
+            "del vault.)_"
+        )
+
+    bloques = []
+    for archivo in archivos:
+        try:
+            contenido = archivo.read_text(encoding="utf-8").strip()
+            if contenido:
+                bloques.append(
+                    f"--- {archivo.name} ---\n"
+                    f"{contenido}"
+                )
+        except Exception as e:
+            bloques.append(f"--- {archivo.name} ---\n_(error al leer: {e})_")
+
+    if not bloques:
+        return "_(sin contenido en los manuales)_"
+
+    return "\n\n".join(bloques)
 
 
 def _normalizar_texto(texto: str) -> str:
@@ -295,16 +412,24 @@ def _construir_contexto_referencia(contenido_bitacoras: str,
       - Archivos agregados de tasks (decisiones.md, tareas.md, etc.) SOLO
         si la pregunta del usuario los menciona por keyword. Para resúmenes
         diarios/semanales pasamos pregunta=None y no se cargan.
+      - Manuales del agente (carpeta manuales/) SOLO si la pregunta se
+        refiere al funcionamiento, configuración o features del agente.
 
     Retorna un string XML-like con secciones etiquetadas para que el LLM
     diferencie cada bloque.
     """
     config = cargar_config()
-    ruta_base = Path(config["ruta_base"]) / "bitacoras"
+    carpeta_task = ruta_task()
 
-    objetos = _leer_archivo_referencia(ruta_base / "objetos.md")
-    personas = _leer_archivo_referencia(ruta_base / "personas.md")
-    diccionario = _leer_archivo_referencia(ruta_base / "diccionario_datos.md")
+    objetos = _leer_archivo_referencia(carpeta_task / "objetos.md")
+    personas = _leer_archivo_referencia(carpeta_task / "personas.md")
+    diccionario = _leer_archivo_referencia(carpeta_task / "diccionario_datos.md")
+    # Data Request: solicitudes de información recibidas vía Teams.
+    # Se carga siempre completo, igual que objetos/personas/diccionario.
+    # Ruta: Solicitudes/Data_Request.md (carpeta en la raíz del vault).
+    data_request = _leer_archivo_referencia(
+        ruta_solicitudes() / "Data_Request.md"
+    )
 
     nombres_proyectos = _extraer_proyectos_mencionados(contenido_bitacoras)
     bloque_proyectos = _construir_bloque_proyectos_relevantes(
@@ -316,13 +441,27 @@ def _construir_contexto_referencia(contenido_bitacoras: str,
     bloques_tasks = []
     for tipo in tipos_tasks_solicitados:
         nombre_archivo, tag_xml = _TASK_ARCHIVO_Y_TAG[tipo]
-        contenido_task = _leer_archivo_referencia(ruta_base / nombre_archivo)
+        contenido_task = _leer_archivo_referencia(carpeta_task / nombre_archivo)
         bloques_tasks.append(
             f"<{tag_xml}>\n{contenido_task}\n</{tag_xml}>"
         )
     bloques_tasks_str = "\n\n".join(bloques_tasks)
     if bloques_tasks_str:
         bloques_tasks_str = bloques_tasks_str + "\n\n"
+
+    # Manuales del agente: solo si la pregunta es sobre el agente
+    es_pregunta_agente = _detectar_pregunta_sobre_agente(pregunta or "")
+    bloque_manuales_str = ""
+    if es_pregunta_agente:
+        contenido_manuales = _cargar_manuales_agente()
+        bloque_manuales_str = (
+            "<manuales_agente>\n"
+            "Los siguientes son los manuales de funcionamiento del agente "
+            "El Egypcio. Usa esta información para responder preguntas "
+            "sobre cómo funciona, cómo se configura y cómo se usa.\n\n"
+            f"{contenido_manuales}\n"
+            "</manuales_agente>\n\n"
+        )
 
     bloque = (
         "<contexto_referencia>\n"
@@ -335,7 +474,11 @@ def _construir_contexto_referencia(contenido_bitacoras: str,
         "<diccionario_datos>\n"
         f"{diccionario}\n"
         "</diccionario_datos>\n\n"
+        "<data_request>\n"
+        f"{data_request}\n"
+        "</data_request>\n\n"
         f"{bloques_tasks_str}"
+        f"{bloque_manuales_str}"
         "<proyectos_relevantes>\n"
         f"{bloque_proyectos}\n"
         "</proyectos_relevantes>\n"
@@ -349,9 +492,10 @@ def _construir_contexto_referencia(contenido_bitacoras: str,
         f"({', '.join(tipos_tasks_solicitados)}) "
         if tipos_tasks_solicitados else ""
     )
+    manuales_log = "+ manuales del agente " if es_pregunta_agente else ""
     print(
-        f"[Chat] Contexto referencia: objetos + personas + diccionario "
-        f"{tasks_log}+ {n_proy} proyecto(s) "
+        f"[Chat] Contexto referencia: objetos + personas + diccionario + data_request "
+        f"{tasks_log}{manuales_log}+ {n_proy} proyecto(s) "
         f"({', '.join(nombres_proyectos) if nombres_proyectos else '—'})"
     )
 
@@ -360,8 +504,7 @@ def _construir_contexto_referencia(contenido_bitacoras: str,
 
 def _guardar_resumen_en_bitacora(resumen: str):
     """Agrega el resumen generado al final de la bitácora del día."""
-    config = cargar_config()
-    ruta_base = Path(config["ruta_base"]) / "bitacoras"
+    ruta_base = ruta_bitacoras()
     fecha = datetime.now().strftime("%Y-%m-%d")
     archivo = ruta_base / f"bitacora_{fecha}.md"
 

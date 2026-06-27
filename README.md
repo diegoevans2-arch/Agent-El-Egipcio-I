@@ -48,7 +48,7 @@ Eres profesional del conocimiento. Saltas entre **DBeaver, Athena, Excel, Power 
 - 📝 **Escribe entradas en Markdown** con wikilinks automáticos a herramientas, fuentes de datos y personas conocidas
 - 🏷️ **Reconoce notas estructuradas** que escribes tú (`@decision`, `@tarea`, `@acuerdo`, `@idea`, `@bloqueado`, `@ticket`, `@pendiente`, `@objeto`, `@diccionario`, `@persona`) y las **acumula en archivos agregados por tipo** (`decisiones.md`, `tareas.md`, etc.)
 - 💾 **Extrae código** que pegues en notas (SQL, Python, Bash, JS, JSON, YAML) a archivos snippet separados con frontmatter
-- 📊 **Clasifica cada actividad por proyecto** usando un modelo rápido y barato del LLM
+- 📊 **Clasifica cada actividad por proyecto** usando un modelo rápido y barato del LLM, con un sistema semántico de tres bloques por proyecto (descripción general, objetivos específicos y temperatura de clasificación configurable por proyecto)
 - 📈 **Mantiene un Gantt global y un Gantt por proyecto** en Mermaid, listos para renderizar en Obsidian
 - 🗂️ **Genera MOCs (Map of Content)** por proyecto con métricas, snippets y resúmenes calculados localmente
 - 💬 **Chat conversacional** con contexto de las últimas N bitácoras + archivos de referencia curados + carga condicional de archivos de task según la pregunta
@@ -74,7 +74,7 @@ Ventana flotante, anclable, redimensionable. El panel superior muestra el estado
 Soporta **Claude (Anthropic), OpenAI (ChatGPT) y Gemini (Google)** con una capa de abstracción única. Cambias de proveedor desde un popup de login al iniciar, sin tocar código. Cada proveedor tiene su modelo principal y un modelo rápido para tareas de clasificación, optimizando costos.
 
 ### 🖥️ Multi-monitor con filtrado físico
-¿Trabajas con dos monitores y solo quieres documentar lo que pasa en uno? El Egipcio detecta en qué monitor físico está cada ventana y filtra capturas según el monitor que selecciones. También puede capturar todos en modo panorámico.
+¿Trabajas con dos monitores y solo quieres documentar lo que pasa en uno? El Egypcio detecta en qué monitor físico está cada ventana y filtra capturas según el monitor que selecciones. También puede capturar todos en modo panorámico.
 
 ### 🧠 Análisis con visión + URLs
 Cada captura se envía al LLM con visión para describir la actividad en lenguaje natural. Adicionalmente, **detecta URLs visibles** en la pantalla (barra del browser, links abiertos) y las filtra contra una lista de dominios laborales antes de registrarlas.
@@ -85,21 +85,35 @@ El agente reconoce **herramientas, fuentes de datos y personas conocidas** menci
 ### 💾 Snippets automáticos
 Si pegas código en una nota (≥2 líneas), el agente detecta el lenguaje (SQL, Python, Bash, JS, JSON, YAML), lo extrae a un archivo `.md` aparte en `bitacoras/snippets/`, le pone frontmatter con metadata y lo enlaza desde la bitácora del día y desde el MOC del proyecto.
 
-### 📊 Gantt en Mermaid
-Cada vez que una entrada supera 2 minutos, un modelo rápido del LLM la clasifica contra tus proyectos activos. El tiempo se suma a un Gantt global (`gantt_proyectos.md`) y a un Gantt individual por proyecto. Todo en Mermaid, todo legible directamente en Obsidian.
-
-### 🗂️ MOCs por proyecto
-Cada proyecto tiene un `.md` propio con:
-- **Frontmatter ampliado** con métricas (horas totales, días activos, capturas, personas, fuentes top)
-- **Sección de snippets** relacionados, enlazados como wikilinks
-- **Sección de resumen** con semáforo de actividad, top herramientas, top fuentes y personas más mencionadas
-- **Entradas agrupadas por día** con enlaces directos a las bitácoras donde aparecen
+### 📊 Clasificación semántica de proyectos
 
 <p align="center">
   <img src="imagenes/El_egypcio__I_Gestion_de_proyectos.png" alt="Popup de Gestión de Proyectos" width="85%"/>
 </p>
 
-Desde el botón **🗂 Gestionar proyectos** abres este popup para crear, editar, cerrar o reactivar proyectos. El botón **🔁 Migrar bitácoras antiguas** procesa las bitácoras existentes y clasifica retroactivamente cada entrada contra los proyectos activos, reconstruyendo el Gantt y los MOCs desde cero.
+Cada vez que una entrada supera 2 minutos, un modelo rápido del LLM la clasifica contra tus proyectos activos. El tiempo se suma a un Gantt global (`gantt_proyectos.md`) y a un Gantt individual por proyecto. Todo en Mermaid, todo legible directamente en Obsidian.
+
+La clasificación usa un **sistema semántico de tres bloques** por proyecto:
+
+| Campo | Propósito en la clasificación |
+|---|---|
+| **Título** | Identificador del proyecto |
+| **Descripción general** | Contexto: qué es, de dónde vienen los datos, qué sistemas involucra |
+| **Objetivos específicos** | Criterio de inclusión: qué actividades cuentan como parte del proyecto |
+
+El LLM evalúa si la actividad detectada contribuye directamente a los *objetivos específicos* del proyecto — no solo si coincide en herramientas genéricas. Adicionalmente, cada proyecto tiene una **temperatura de clasificación** configurable (0.0–1.0) que controla el determinismo del modelo al decidir: valores bajos hacen la clasificación más estricta y consistente; valores altos permiten mayor variación, útil en proyectos con actividades transversales.
+
+El **prompt de clasificación completo es editable** desde la ventana de Configuraciones, con validación de placeholders obligatorios y botón de restaurar default. Incluye 6 niveles predefinidos de criterio (estricto, moderado, flexible, por herramienta exclusiva, anti-transversal y debug).
+
+Desde el botón **🗂 Gestionar proyectos** puedes crear, editar, cerrar o reactivar proyectos. El botón **🔁 Migrar bitácoras antiguas** procesa las bitácoras existentes y clasifica retroactivamente cada entrada contra los proyectos activos, reconstruyendo el Gantt y los MOCs desde cero.
+
+### 🗂️ MOCs por proyecto
+Cada proyecto tiene un `.md` propio con:
+- **Frontmatter ampliado** con métricas (horas totales, días activos, capturas, personas, fuentes top)
+- **Sección de descripción y objetivos** del proyecto
+- **Sección de snippets** relacionados, enlazados como wikilinks
+- **Sección de resumen** con semáforo de actividad, top herramientas, top fuentes y personas más mencionadas
+- **Entradas agrupadas por día** con enlaces directos a las bitácoras donde aparecen
 
 ### 💬 Chat con contexto curado
 Pregúntale al agente *"¿cuánto avancé esta semana en Maestro Mallas?"* o *"resúmeme la reunión con Pablo del martes"*. Lee las últimas N bitácoras + archivos de referencia (`objetos.md`, `personas.md`, `diccionario_datos.md`, `proyectos_relevantes.md`) y responde con precisión. Incluye atajos rápidos: **resumen del día** y **resumen de la semana**, que puedes guardar de vuelta en la bitácora.
@@ -156,7 +170,7 @@ El cambio de tema se aplica en caliente a la ventana principal y al popup activo
 ├── 📄 captura.py                   # Screenshot + análisis con LLM (visión + URLs)
 ├── 📄 bitacora.py                  # Escritura .md + wikilinks + snippets + frontmatter + archivos agregados por task
 ├── 📄 chat.py                      # Chat conversacional con contexto curado + carga condicional de archivos task
-├── 📄 gantt.py                     # Clasificación por proyecto + Gantt global
+├── 📄 gantt.py                     # Clasificación semántica por proyecto + temperatura + prompt configurable + Gantt global
 ├── 📄 proyectos.py                 # MOCs por proyecto + Gantt individual + migración
 ├── 📄 ventana.py                   # GUI PyQt5 + system tray + popups + selector de temas
 ├── 📄 popup_login.py               # Autenticación multi-proveedor
@@ -254,8 +268,9 @@ El cambio de tema se aplica en caliente a la ventana principal y al popup activo
 ┌─────────────────────────────────────────────────────────────────┐
 │                         gantt.py                                 │
 │                                                                  │
-│  Clasificación de la actividad → modelo rápido del LLM           │
-│  Match contra proyectos activos del config                       │
+│  Carga prompt de clasificación (config o default)                │
+│  Construye bloque semántico: descripción + objetivos por proyecto│
+│  Clasificación con modelo rápido (temperatura por proyecto)      │
 │  Suma de tiempo al Gantt global + Gantt del proyecto             │
 │  Actualización del .md del proyecto (MOC)                        │
 └──────────────────────────────┬──────────────────────────────────┘
@@ -339,7 +354,32 @@ pip install -r requirements.txt
 | `Pillow` | Procesamiento de imágenes |
 | `PyQt5` | GUI + system tray |
 
-### 3. Configurar `config.json`
+### 3. Estructura recomendada: vault como subcarpeta
+
+El Egypcio escribe toda su salida dentro de un vault de Obsidian. La estructura recomendada (y la que garantiza que el agente funcione igual en cualquier equipo) es **crear el vault como una subcarpeta dentro de la carpeta del código**:
+
+```
+Agent LLM - El Egypcio/        ← carpeta del código (donde está agente.py)
+├── agente.py
+├── config.json
+├── utils.py
+├── ... (resto de .py)
+├── tests/
+└── Naos/                      ← tu vault de Obsidian (subcarpeta)
+    ├── .obsidian/
+    ├── bitacoras/
+    ├── proyectos/
+    ├── Task/
+    ├── scripts/
+    ├── snippets/
+    ├── imagenes/
+    ├── Solicitudes/
+    └── Manuales de Uso del Agente/
+```
+
+Puedes nombrar el vault como quieras (aquí se llama `Naos`). Lo importante es que sea una subcarpeta y que abras esa subcarpeta como vault en Obsidian (Archivo → Abrir carpeta como vault).
+
+### 4. Configurar `config.json`
 
 Copia `config_template.json` a `config.json` y completa al menos:
 
@@ -352,21 +392,28 @@ Copia `config_template.json` a `config.json` y completa al menos:
     "gemini": ""
   },
   "nombre_usuario": "TuNombre",
-  "ruta_base": "",
+  "ruta_base": "C:\\ruta\\a\\Agent LLM - El Egypcio\\Naos",
   "ruta_obsidian_1": "",
   "proyectos": []
 }
 ```
 
-Casi todo se puede dejar en blanco — el agente autocompleta rutas detectando Obsidian y usa la carpeta del script como `ruta_base` por defecto. Todo lo demás (listas blancas/negras, palabras clave, system prompt, modelo IA, días de contexto, monitor) se edita desde la UI sin tocar el JSON.
+> ⚠️ **`ruta_base` es obligatorio y debe apuntar a tu vault** (la subcarpeta,
+> ej. `...\\Naos`), NO a la carpeta del código. El nombre de tu vault se
+> deriva de esta ruta, así que si apunta al lugar equivocado, los botones que
+> abren Obsidian (Bitácora, Gantt) fallarán con "Vault not found".
+>
+> Usa doble barra invertida `\\` en las rutas de Windows, como en el ejemplo.
 
-### 4. Arrancar
+El resto de rutas (`ruta_obsidian_1` / `ruta_obsidian_2`) sí se autodetectan si las dejas vacías. Todo lo demás (listas blancas/negras, palabras clave, system prompt, modelo IA, días de contexto, monitor) se edita desde la UI sin tocar el JSON.
+
+### 5. Arrancar
 
 ```bash
 python agente.py
 ```
 
-Aparecerá el popup de login. Selecciona proveedor, pega la API key, conecta. La ventana principal se abre y el agente queda monitoreando en el system tray.
+Al arrancar, el agente corre primero una verificación de QA (silenciosa si todo está bien). Luego aparece el popup de login: selecciona proveedor, pega la API key, conecta. La ventana principal se abre y el agente queda monitoreando en el system tray.
 
 ---
 
@@ -421,7 +468,7 @@ n_notas_estructuradas: 4
 
 ## 🪨 Cómo se ve en tu vault de Obsidian
 
-El Egipcio escribe directamente sobre la estructura de tu vault. Todo lo que genera — bitácoras, MOCs, snippets, Gantts — es Markdown puro con wikilinks y frontmatter YAML, así que Obsidian lo indexa, lo grafica y lo busca como cualquier nota nativa.
+El Egypcio escribe directamente sobre la estructura de tu vault. Todo lo que genera — bitácoras, MOCs, snippets, Gantts — es Markdown puro con wikilinks y frontmatter YAML, así que Obsidian lo indexa, lo grafica y lo busca como cualquier nota nativa.
 
 ### 🌐 Grafo del vault construyéndose solo
 
@@ -449,29 +496,30 @@ El archivo `gantt_proyectos.md` se regenera tras cada cierre de entrada. Obsidia
   <img src="imagenes/El_egypcio__I_Configuraciones_II.png" alt="Panel de configuraciones - prompt y modelo IA" width="48%"/>
 </p>
 
-El popup de **Configuraciones** te deja editar todo sin tocar JSON: las listas blanca y negra de procesos, las palabras clave de browser/UWP, las personas conocidas para wikilinks, los días de contexto del chat, el umbral de alerta de inactividad, el **prompt del asistente** (con variables `{nombre_usuario}` y `{dias_contexto}`) y el **modelo IA activo** del proveedor en curso. Los cambios en listas, contexto y prompt se aplican en caliente.
+El popup de **Configuraciones** te deja editar todo sin tocar JSON: las listas blanca y negra de procesos, las palabras clave de browser/UWP, las personas conocidas para wikilinks, los días de contexto del chat, el umbral de alerta de inactividad, el **prompt del asistente** (con variables `{nombre_usuario}` y `{dias_contexto}`), el **prompt de clasificación de proyectos**, los **prompts de análisis de imágenes** (actividad y reunión) —todos con validación de placeholders obligatorios— y el **modelo IA activo**. Los cambios se aplican en caliente.
 
 | Parámetro | Descripción |
 |---|---|
 | `ia_proveedor` / `ia_api_keys` / `ia_modelos` | Proveedor activo y sus API keys/modelos por proveedor |
 | `nombre_usuario` | Nombre que el chat usará para referirse a ti |
-| `ruta_base` | Carpeta raíz del proyecto (autodetecta) |
+| `ruta_base` | **Ruta a tu vault de Obsidian** (la subcarpeta, ej. `...\\Naos`). Obligatorio |
 | `ruta_obsidian_1` / `ruta_obsidian_2` | Rutas a Obsidian para multi-PC (autodetecta) |
 | `app_bitacora` | App preferida para abrir las bitácoras (`obsidian` o `notepad`) |
 | `dias_contexto_chat` | Cuántos días de bitácora inyectar al chat |
-| `system_prompt` | Prompt personalizado del asistente (con variables `{nombre_usuario}` y `{dias_contexto}`) |
+| `system_prompt` | Prompt personalizado del asistente (variables `{nombre_usuario}` y `{dias_contexto}`) |
+| `prompt_clasificacion` | Plantilla del prompt de clasificación de proyectos (con placeholders obligatorios) |
 | `monitor_captura` | Monitor físico a capturar (`1`, `2`, … o `-1` para todos) |
 | `captura.estabilidad_segundos` | Segundos que una ventana debe estar activa antes de capturar |
 | `captura.intervalo_reunion_segundos` | Frecuencia de recapturas durante reuniones |
 | `alertas.inactividad_dias` | Días de inactividad antes de alertar sobre un proyecto |
 | `tema_visual` | Tema visual activo (`mocha`, `latte`, `dracula`, `nord`, `alto_contraste`) |
-| `finops.precios_override` | Override de precios por modelo en USD/M tokens, ej. `{"claude-sonnet-4-6": [3.00, 15.00]}` |
+| `finops.precios_override` | Override de precios por modelo en USD/M tokens |
 | `lista_blanca_procesos` / `lista_negra_procesos` | Filtros por `.exe` |
 | `palabras_clave_laborales_browser` / `keywords_bloqueadas_browser` | Filtros para browsers/UWP |
 | `palabras_clave_reunion` | Disparadores del modo reunión |
 | `dominios_laborales` | Dominios cuyas URLs sí se registran |
 | `personas_conocidas` | Lista de personas para wikilinks automáticos |
-| `proyectos` | Lista de proyectos con nombre, palabras clave, inicio, fin, estado |
+| `proyectos` | Lista de proyectos con nombre, descripción general, objetivos específicos, temperatura, inicio, fin y estado |
 
 ---
 
@@ -515,10 +563,13 @@ El popup de **Configuraciones** te deja editar todo sin tocar JSON: las listas b
 - [x] Configuración completa desde UI (sin tocar JSON)
 - [x] Monitor FinOps integrado (tokens, costo, desglose por tipo)
 - [x] 5 temas visuales (skins) seleccionables con vista previa en caliente
+- [x] Clasificación semántica con descripción + objetivos específicos por proyecto
+- [x] Temperatura de clasificación configurable por proyecto
+- [x] Prompt de clasificación editable desde la UI (con 6 niveles predefinidos)
 - [ ] Exportación de bitácora a PDF / Excel
 - [ ] Empaquetado como `.exe` standalone (PyInstaller)
 - [ ] Modo móvil para revisar bitácoras desde el celular
-- [ ] Conexión con otros agentes - a modo de compartir la base de           conocimiento
+- [ ] Conexión con otros agentes - a modo de compartir la base de conocimiento
 
 ---
 
@@ -536,5 +587,5 @@ Este proyecto está bajo la Licencia MIT...
 
 <p align="center">
   <i>========================.</i><br/>
-  <b>El Egipcio — Escribe el pasado. Ejecuta el futuro.</b>
+  <b>El Egypcio — Escribe el pasado. Ejecuta el futuro.</b>
 </p>

@@ -11,7 +11,7 @@ import re
 from pathlib import Path
 from datetime import datetime, timedelta
 
-from utils import cargar_config
+from utils import cargar_config, ruta_proyectos
 from cliente_ia import get_cliente
 
 
@@ -20,15 +20,11 @@ from cliente_ia import get_cliente
 # ---------------------------------------------------------------------------
 
 def _ruta_gantt_data() -> Path:
-    config = cargar_config()
-    ruta = Path(config["ruta_base"]) / "bitacoras"
-    ruta.mkdir(parents=True, exist_ok=True)
-    return ruta / "gantt_data.json"
+    return ruta_proyectos() / "gantt_data.json"
 
 
 def _ruta_gantt_md() -> Path:
-    config = cargar_config()
-    return Path(config["ruta_base"]) / "bitacoras" / "gantt_proyectos.md"
+    return ruta_proyectos() / "gantt_proyectos.md"
 
 
 def cargar_gantt_data() -> dict:
@@ -65,14 +61,62 @@ def guardar_proyectos(proyectos: list):
         json.dump(config, f, ensure_ascii=False, indent=2)
 
 
-def agregar_proyecto(nombre: str, palabras_clave: str) -> dict:
-    """Agrega un nuevo proyecto al config.json."""
+# Temperatura por defecto para clasificación (baja = determinista)
+TEMPERATURA_DEFAULT = 0.2
+
+
+def obtener_descripcion(proyecto: dict) -> str:
+    """
+    Retorna la descripción del proyecto.
+    Fallback a `palabras_clave` para retrocompatibilidad con proyectos viejos.
+    """
+    desc = proyecto.get("descripcion", "")
+    if desc:
+        return desc
+    # Fallback legacy
+    return proyecto.get("palabras_clave", "")
+
+
+def obtener_objetivos(proyecto: dict) -> str:
+    """
+    Retorna los objetivos específicos del proyecto.
+    Si no existen, retorna string vacío (los proyectos viejos no tienen).
+    """
+    return proyecto.get("objetivos", "")
+
+
+def obtener_temperatura(proyecto: dict) -> float:
+    """
+    Retorna la temperatura de clasificación del proyecto.
+    Si no existe o es inválida (incluido NaN/infinito), retorna el default.
+    """
+    import math
+    try:
+        t = float(proyecto.get("temperatura", TEMPERATURA_DEFAULT))
+        # NaN e infinito son floats válidos pero no sirven como temperatura
+        if not math.isfinite(t):
+            return TEMPERATURA_DEFAULT
+        return max(0.0, min(1.0, t))
+    except (TypeError, ValueError):
+        return TEMPERATURA_DEFAULT
+
+
+def agregar_proyecto(nombre: str, descripcion: str = "",
+                     objetivos: str = "",
+                     temperatura: float = TEMPERATURA_DEFAULT) -> dict:
+    """
+    Agrega un nuevo proyecto al config.json con la estructura ampliada:
+    título, descripción general, objetivos específicos y temperatura
+    de clasificación.
+    """
     ruta = Path(__file__).parent / "config.json"
     with open(ruta, encoding="utf-8") as f:
         config = json.load(f)
     nuevo = {
         "nombre": nombre.strip(),
-        "palabras_clave": palabras_clave.strip(),
+        "descripcion": descripcion.strip(),
+        "objetivos": objetivos.strip(),
+        "temperatura": float(temperatura),
         "inicio": datetime.now().strftime("%Y-%m-%d"),
         "fin": None,
         "estado": "activo"
@@ -83,7 +127,8 @@ def agregar_proyecto(nombre: str, palabras_clave: str) -> dict:
     return nuevo
 
 
-def editar_proyecto(indice: int, nombre: str, palabras_clave: str, estado: str):
+def editar_proyecto(indice: int, nombre: str, descripcion: str,
+                    objetivos: str, temperatura: float, estado: str):
     """
     Edita un proyecto existente por índice.
 
@@ -91,14 +136,22 @@ def editar_proyecto(indice: int, nombre: str, palabras_clave: str, estado: str):
     - Al cerrar (estado="cerrado") sin fecha previa de cierre → se setea con hoy.
     - Al reactivar (estado="activo") → se limpia (None), porque la fecha de
       cierre histórica ya no aplica si el proyecto vuelve a estar vivo.
+
+    Si el proyecto tenía el campo legacy `palabras_clave`, se elimina al
+    guardar (ya migró a `descripcion`).
     """
     ruta = Path(__file__).parent / "config.json"
     with open(ruta, encoding="utf-8") as f:
         config = json.load(f)
     proyecto = config["proyectos"][indice]
     proyecto["nombre"] = nombre.strip()
-    proyecto["palabras_clave"] = palabras_clave.strip()
+    proyecto["descripcion"] = descripcion.strip()
+    proyecto["objetivos"] = objetivos.strip()
+    proyecto["temperatura"] = max(0.0, min(1.0, float(temperatura)))
     proyecto["estado"] = estado
+    # Limpieza del campo legacy si existía
+    if "palabras_clave" in proyecto:
+        del proyecto["palabras_clave"]
     if estado == "cerrado" and not proyecto.get("fin"):
         proyecto["fin"] = datetime.now().strftime("%Y-%m-%d")
     elif estado == "activo":
@@ -109,14 +162,114 @@ def editar_proyecto(indice: int, nombre: str, palabras_clave: str, estado: str):
 
 
 # ---------------------------------------------------------------------------
-# Clasificación de actividad con Claude Haiku
+# Clasificación de actividad con el modelo rápido del proveedor
 # ---------------------------------------------------------------------------
+
+# Placeholders obligatorios en el template del prompt. Si alguno falta, el
+# prompt no puede funcionar y debe rechazarse.
+PLACEHOLDERS_CLASIFICACION = [
+    "titulo_ventana",
+    "descripcion_actividad",
+    "lista_proyectos",
+    "lista_nombres",
+]
+
+# Template por defecto del prompt de clasificación. El usuario puede
+# sobrescribirlo desde la ventana de configuraciones (clave
+# `prompt_clasificacion` en config.json).
+PROMPT_CLASIFICACION_DEFAULT = """Tienes esta actividad laboral detectada en pantalla:
+
+Ventana activa: {titulo_ventana}
+Descripción de la actividad: {descripcion_actividad}
+
+Estos son los proyectos activos del usuario, cada uno con su descripción
+general y sus objetivos específicos:
+
+{lista_proyectos}
+
+TAREA: Determina a qué proyecto pertenece la actividad detectada.
+
+CRITERIO DE DECISIÓN (estricto):
+- La actividad debe contribuir directamente a los OBJETIVOS ESPECÍFICOS
+  de un proyecto. La sola coincidencia de tecnologías, herramientas o
+  palabras genéricas NO es suficiente para clasificar.
+- Si la actividad NO contribuye claramente a los objetivos de ningún
+  proyecto, responde "ninguno". Es preferible "ninguno" antes que un
+  match dudoso.
+- Si la actividad encaja parcialmente con varios proyectos, elige el
+  que mejor cumpla los objetivos específicos.
+
+RESPUESTA: SOLO el nombre exacto del proyecto de la lista ({lista_nombres})
+o la palabra "ninguno". Sin explicaciones, sin comillas, sin markdown."""
+
+
+def validar_prompt_clasificacion(template: str) -> tuple[bool, list[str]]:
+    """
+    Valida que un template de prompt contenga TODOS los placeholders
+    críticos requeridos por la lógica de clasificación.
+
+    Args:
+        template: el string del template a validar.
+
+    Returns:
+        (es_valido, faltantes):
+        - es_valido: True si están todos los placeholders.
+        - faltantes: lista de nombres de placeholders faltantes (vacía si OK).
+    """
+    if not template or not isinstance(template, str):
+        return False, list(PLACEHOLDERS_CLASIFICACION)
+
+    faltantes = [
+        ph for ph in PLACEHOLDERS_CLASIFICACION
+        if "{" + ph + "}" not in template
+    ]
+    return (len(faltantes) == 0, faltantes)
+
+
+def cargar_prompt_clasificacion() -> str:
+    """
+    Carga el template del prompt de clasificación desde config.json.
+    Si la clave no existe, está vacía o tiene un template inválido,
+    retorna el template por defecto.
+    """
+    try:
+        config = cargar_config()
+        custom = (config.get("prompt_clasificacion") or "").strip()
+        if not custom:
+            return PROMPT_CLASIFICACION_DEFAULT
+
+        valido, _ = validar_prompt_clasificacion(custom)
+        if not valido:
+            print("[Gantt] ⚠ prompt_clasificacion inválido en config — usando default")
+            return PROMPT_CLASIFICACION_DEFAULT
+        return custom
+    except Exception as e:
+        print(f"[Gantt] Error leyendo prompt_clasificacion: {e} — usando default")
+        return PROMPT_CLASIFICACION_DEFAULT
+
 
 def clasificar_actividad(titulo_ventana: str, descripcion_actividad: str, duracion_min: int) -> str | None:
     """
-    Usa Claude Haiku para determinar a qué proyecto pertenece una actividad.
-    Retorna el nombre del proyecto o None si no corresponde a ninguno.
+    Usa el modelo rápido del proveedor para determinar a qué proyecto
+    pertenece una actividad.
+
+    El prompt se construye con tres bloques por proyecto:
+      - TÍTULO: nombre identificador
+      - DESCRIPCIÓN: qué es el proyecto (contexto)
+      - OBJETIVOS: qué actividades cuentan como parte del proyecto
+
+    El template del prompt se lee desde config.json (clave
+    `prompt_clasificacion`). Si no existe o es inválido, se usa el
+    PROMPT_CLASIFICACION_DEFAULT hardcoded.
+
+    La temperatura usada en la llamada al LLM es el promedio de las
+    temperaturas configuradas por proyecto (cada proyecto puede tener
+    una). Si ninguno la define, se usa TEMPERATURA_DEFAULT.
+
     Skippea entradas de menos de 2 minutos.
+
+    Returns:
+        Nombre exacto del proyecto, o None si no corresponde a ninguno.
     """
     if duracion_min < 2:
         return None
@@ -125,32 +278,63 @@ def clasificar_actividad(titulo_ventana: str, descripcion_actividad: str, duraci
     if not proyectos:
         return None
 
-    # Construir lista de proyectos para el prompt
-    lista_proyectos = "\n".join([
-        f"- {p['nombre']}: {p.get('palabras_clave', '')}"
-        for p in proyectos
-    ])
+    # Construir bloques estructurados por proyecto
+    bloques = []
+    temperaturas = []
+    for idx, p in enumerate(proyectos, 1):
+        nombre_p = p["nombre"]
+        descripcion = obtener_descripcion(p).strip() or "(sin descripción)"
+        objetivos = obtener_objetivos(p).strip() or "(sin objetivos específicos)"
+        temperaturas.append(obtener_temperatura(p))
 
-    prompt = f"""Tienes esta actividad laboral:
-Ventana: {titulo_ventana[:80]}
-Descripción: {descripcion_actividad[:150]}
+        bloques.append(
+            f"### Proyecto {idx}: {nombre_p}\n"
+            f"DESCRIPCIÓN: {descripcion}\n"
+            f"OBJETIVOS ESPECÍFICOS: {objetivos}"
+        )
 
-Proyectos activos:
-{lista_proyectos}
+    lista_proyectos_str = "\n\n".join(bloques)
+    nombres_validos = [p["nombre"] for p in proyectos]
+    lista_nombres = " | ".join(f'"{n}"' for n in nombres_validos)
 
-¿A qué proyecto pertenece esta actividad?
-Responde SOLO con el nombre exacto del proyecto de la lista, o "ninguno" si no corresponde a ninguno.
-No expliques nada más."""
+    # Temperatura efectiva: promedio de las configuradas (o default si lista vacía)
+    temperatura_efectiva = (
+        sum(temperaturas) / len(temperaturas) if temperaturas else TEMPERATURA_DEFAULT
+    )
+
+    # Cargar template (custom desde config, o default si no es válido)
+    template = cargar_prompt_clasificacion()
+
+    # Rellenar placeholders. Si .format() falla (ej. llaves accidentales
+    # en el template del usuario), caemos al default sin reventar.
+    try:
+        prompt = template.format(
+            titulo_ventana=titulo_ventana[:120],
+            descripcion_actividad=descripcion_actividad[:300],
+            lista_proyectos=lista_proyectos_str,
+            lista_nombres=lista_nombres,
+        )
+    except (KeyError, IndexError, ValueError) as e:
+        print(f"[Gantt] ⚠ Error formateando prompt custom: {e} — usando default")
+        prompt = PROMPT_CLASIFICACION_DEFAULT.format(
+            titulo_ventana=titulo_ventana[:120],
+            descripcion_actividad=descripcion_actividad[:300],
+            lista_proyectos=lista_proyectos_str,
+            lista_nombres=lista_nombres,
+        )
 
     try:
         cliente = get_cliente()
-        resultado = cliente.clasificar(prompt, max_tokens=30,
-                                       tipo_operacion="clasificacion_proyecto")
+        resultado = cliente.clasificar(
+            prompt,
+            max_tokens=40,
+            tipo_operacion="clasificacion_proyecto",
+            temperature=temperatura_efectiva,
+        )
         # Limpiar comillas o markdown que algunos modelos agregan
         resultado = resultado.strip().strip('"').strip("'").strip()
         # Verificar que sea un proyecto válido
-        nombres = [p["nombre"] for p in proyectos]
-        if resultado in nombres:
+        if resultado in nombres_validos:
             return resultado
         return None
     except Exception as e:

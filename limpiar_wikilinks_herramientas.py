@@ -18,7 +18,7 @@ import shutil
 from pathlib import Path
 from datetime import datetime
 
-from utils import cargar_config
+from utils import cargar_config, ruta_bitacoras, ruta_snippets
 from bitacora import _MAPEO_HERRAMIENTAS, _MAPEO_FUENTES
 
 
@@ -114,7 +114,7 @@ def main():
     dry_run = "--ejecutar" not in sys.argv
 
     config = cargar_config()
-    ruta_base = Path(config["ruta_base"]) / "bitacoras"
+    ruta_base = ruta_bitacoras()
 
     if not ruta_base.exists():
         print(f"[ERROR] Carpeta de bitácoras no existe: {ruta_base}")
@@ -137,7 +137,7 @@ def main():
     # Recolectar archivos a procesar
     archivos = []
     archivos.extend(sorted(ruta_base.glob("bitacora_*.md")))
-    snippets_dir = ruta_base / "snippets"
+    snippets_dir = ruta_snippets()
     if snippets_dir.exists():
         archivos.extend(sorted(snippets_dir.glob("*.md")))
 

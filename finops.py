@@ -23,7 +23,7 @@ from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Optional
 
-from utils import cargar_config
+from utils import cargar_config, ruta_scripts
 
 
 # ===========================================================================
@@ -160,11 +160,8 @@ _VERSION = 1
 
 
 def _ruta_data() -> Path:
-    """Retorna ruta de bitacoras/finops_data.json (crea la carpeta si falta)."""
-    cfg = cargar_config()
-    ruta = Path(cfg["ruta_base"]) / "bitacoras"
-    ruta.mkdir(parents=True, exist_ok=True)
-    return ruta / "finops_data.json"
+    """Retorna ruta de scripts/finops_data.json (crea la carpeta si falta)."""
+    return ruta_scripts() / "finops_data.json"
 
 
 def _cargar_data() -> dict:

@@ -1,13 +1,22 @@
-# requirements.txt — Agente LLM El Egypcio
+# ==========================================================================
+# El Egypcio — Dependencias
+# ==========================================================================
+# Instalar con:  pip install -r requirements.txt
+#
+# Nota: el agente es Windows-only (usa pywin32 para detección de ventanas).
 
-# UI y captura
-PyQt5
-Pillow
-mss
-pywin32
-psutil
+# --- Interfaz gráfica ---
+PyQt5>=5.15
 
-# Proveedores de IA (instala los que uses)
-anthropic
-openai
-google-generativeai
+# --- Captura de pantalla e imágenes ---
+mss>=9.0
+Pillow>=10.0
+
+# --- Detección de ventanas y procesos (Windows) ---
+pywin32>=306
+psutil>=5.9
+
+# --- Clientes de LLM (instala el/los que vayas a usar) ---
+anthropic>=0.40
+openai>=1.0
+google-generativeai>=0.8

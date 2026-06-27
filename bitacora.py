@@ -15,7 +15,7 @@ from pathlib import Path
 from datetime import datetime
 from collections import Counter
 
-from utils import cargar_config
+from utils import cargar_config, ruta_bitacoras, ruta_snippets, ruta_task
 from gantt import actualizar_gantt
 
 
@@ -142,10 +142,7 @@ def _formatear_nota_con_codigo(texto: str) -> str:
 
 def _obtener_ruta_snippets() -> Path:
     """Retorna la carpeta donde se guardan los snippets, creándola si no existe."""
-    config = cargar_config()
-    ruta = Path(config["ruta_base"]) / "bitacoras" / "snippets"
-    ruta.mkdir(parents=True, exist_ok=True)
-    return ruta
+    return ruta_snippets()
 
 
 def _crear_snippet(codigo: str, lenguaje: str, contexto: dict) -> str:
@@ -594,9 +591,7 @@ def _enriquecer_actividad_con_wikilinks(texto: str, herramienta_canonica: str,
 
 def obtener_ruta_bitacora() -> Path:
     """Retorna la ruta del archivo .md del día actual."""
-    config = cargar_config()
-    ruta_base = Path(config["ruta_base"]) / "bitacoras"
-    ruta_base.mkdir(parents=True, exist_ok=True)
+    ruta_base = ruta_bitacoras()
     fecha = datetime.now().strftime("%Y-%m-%d")
     return ruta_base / f"bitacora_{fecha}.md"
 
@@ -672,8 +667,8 @@ def _detectar_personas(contenido_md: str, cfg: dict) -> list:
 
     Fuentes de candidatos (combinadas y deduplicadas):
     1. Lista global `personas_conocidas` en config.json (fuente principal)
-    2. Patrón "Nombre Apellido" en palabras_clave de proyectos (fuente
-       complementaria)
+    2. Patrón "Nombre Apellido" en descripción + objetivos de proyectos
+       (con fallback a `palabras_clave` legacy)
     """
     candidatos = set()
 
@@ -682,11 +677,16 @@ def _detectar_personas(contenido_md: str, cfg: dict) -> list:
         if isinstance(nombre, str) and nombre.strip():
             candidatos.add(nombre.strip())
 
-    # Fuente 2: extracción desde palabras_clave de proyectos
+    # Fuente 2: extracción desde descripción + objetivos de proyectos
+    # (con fallback a `palabras_clave` legacy para retrocompatibilidad)
     proyectos = cfg.get("proyectos", []) or []
     for p in proyectos:
-        kws = p.get("palabras_clave", "") or ""
-        for m in re.finditer(r"\b([A-ZÁ-Ú][a-zá-ú]+\s+[A-ZÁ-Ú][a-zá-ú]+)\b", kws):
+        texto_proyecto = " ".join([
+            p.get("descripcion", "") or "",
+            p.get("objetivos", "") or "",
+            p.get("palabras_clave", "") or "",   # legacy
+        ])
+        for m in re.finditer(r"\b([A-ZÁ-Ú][a-zá-ú]+\s+[A-ZÁ-Ú][a-zá-ú]+)\b", texto_proyecto):
             candidatos.add(m.group(1).strip())
 
     # Normalizar el contenido una sola vez
@@ -1351,8 +1351,7 @@ class GestorBitacora:
 
     def leer_bitacoras_recientes(self, dias: int = 5) -> str:
         """Retorna el contenido de las últimas N bitácoras para contexto del chat."""
-        config = cargar_config()
-        ruta_base = Path(config["ruta_base"]) / "bitacoras"
+        ruta_base = ruta_bitacoras()
         archivos = sorted(ruta_base.glob("bitacora_*.md"), reverse=True)[:dias]
         contenido = ""
         for archivo in archivos:
@@ -1647,21 +1646,18 @@ def regenerar_seccion_destacada(ruta: Path = None) -> bool:
 
 
 def _ruta_objetos() -> Path:
-    """Retorna la ruta del archivo bitacoras/objetos.md"""
-    config = cargar_config()
-    return Path(config["ruta_base"]) / "bitacoras" / "objetos.md"
+    """Retorna la ruta del archivo Task/objetos.md"""
+    return ruta_task() / "objetos.md"
 
 
 def _ruta_diccionario_datos() -> Path:
-    """Retorna la ruta del archivo bitacoras/diccionario_datos.md"""
-    config = cargar_config()
-    return Path(config["ruta_base"]) / "bitacoras" / "diccionario_datos.md"
+    """Retorna la ruta del archivo Task/diccionario_datos.md"""
+    return ruta_task() / "diccionario_datos.md"
 
 
 def _ruta_personas() -> Path:
-    """Retorna la ruta del archivo bitacoras/personas.md"""
-    config = cargar_config()
-    return Path(config["ruta_base"]) / "bitacoras" / "personas.md"
+    """Retorna la ruta del archivo Task/personas.md"""
+    return ruta_task() / "personas.md"
 
 
 def _procesar_entrada_estructurada(contenido: str) -> tuple:
@@ -1960,9 +1956,8 @@ def agregar_persona_a_md(nombre: str, descripcion: str = "") -> bool:
 
 def _ruta_archivo_task(tipo: str) -> Path:
     """Retorna la ruta del archivo agregado para un tipo de task."""
-    config = cargar_config()
     nombre_archivo = _ARCHIVOS_TASK[tipo][0]
-    return Path(config["ruta_base"]) / "bitacoras" / nombre_archivo
+    return ruta_task() / nombre_archivo
 
 
 def _crear_archivo_task_vacio(ruta: Path, tipo: str) -> str:

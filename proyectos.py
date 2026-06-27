@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 from datetime import datetime
 
-from utils import cargar_config
+from utils import cargar_config, ruta_bitacoras, ruta_snippets, ruta_proyectos
 
 
 # ---------------------------------------------------------------------------
@@ -18,11 +18,8 @@ from utils import cargar_config
 # ---------------------------------------------------------------------------
 
 def _ruta_carpeta_proyectos() -> Path:
-    """Retorna la carpeta donde viven los .md de proyectos."""
-    config = cargar_config()
-    ruta = Path(config["ruta_base"]) / "bitacoras" / "proyectos"
-    ruta.mkdir(parents=True, exist_ok=True)
-    return ruta
+    """Retorna la carpeta donde viven los .md de proyectos (MOCs)."""
+    return ruta_proyectos()
 
 
 def _slugify(nombre: str) -> str:
@@ -44,11 +41,16 @@ def ruta_md_proyecto(nombre: str) -> Path:
 # Creación de archivo .md de proyecto
 # ---------------------------------------------------------------------------
 
-def crear_md_proyecto(nombre: str, palabras_clave: str = "", inicio: str = None) -> Path:
+def crear_md_proyecto(nombre: str, descripcion: str = "",
+                      objetivos: str = "", inicio: str = None) -> Path:
     """
     Crea el archivo .md del proyecto si no existe.
     Si ya existe, no hace nada (preserva entradas anteriores).
     Retorna la ruta del archivo.
+
+    El frontmatter incluye los campos estructurados (descripcion, objetivos),
+    y el cuerpo del .md tiene secciones separadas para descripción general
+    y objetivos específicos.
     """
     ruta = ruta_md_proyecto(nombre)
     if ruta.exists():
@@ -56,19 +58,38 @@ def crear_md_proyecto(nombre: str, palabras_clave: str = "", inicio: str = None)
 
     inicio = inicio or datetime.now().strftime("%Y-%m-%d")
 
+    # Renderizado defensivo: si vienen vacíos, mostramos un placeholder
+    desc_render = descripcion.strip() if descripcion and descripcion.strip() else "_Sin descripción aún_"
+    obj_render = objetivos.strip() if objetivos and objetivos.strip() else "_Sin objetivos específicos definidos_"
+
+    # YAML multilinea seguro: si tienen saltos de línea, usamos bloque literal
+    def _yaml_field(valor: str) -> str:
+        if not valor:
+            return '""'
+        if "\n" in valor or ":" in valor:
+            # Bloque literal estilo "|-"; indentar 2 espacios cada línea
+            lineas = valor.split("\n")
+            indentado = "\n".join("  " + l for l in lineas)
+            return f"|-\n{indentado}"
+        return valor
+
     contenido = f"""---
 proyecto: {nombre}
 inicio: {inicio}
 fin: 
 estado: activo
-palabras_clave: {palabras_clave}
+descripcion: {_yaml_field(descripcion)}
+objetivos: {_yaml_field(objetivos)}
 tags: [proyecto]
 ---
 
 # 📌 {nombre}
 
 ## Descripción
-{palabras_clave if palabras_clave else "_Sin descripción aún_"}
+{desc_render}
+
+## 🎯 Objetivos específicos
+{obj_render}
 
 ## 📊 Gantt del proyecto
 
@@ -230,17 +251,20 @@ def migrar_bitacoras_antiguas(callback_progreso=None) -> dict:
     from gantt import clasificar_actividad, cargar_gantt_data, guardar_gantt_data, obtener_proyectos
 
     config = cargar_config()
-    ruta_bitacoras = Path(config["ruta_base"]) / "bitacoras"
+    ruta_bitacoras_dir = ruta_bitacoras()
 
-    archivos_bitacora = sorted(ruta_bitacoras.glob("bitacora_*.md"))
+    archivos_bitacora = sorted(ruta_bitacoras_dir.glob("bitacora_*.md"))
 
     proyectos_activos = obtener_proyectos()
     if not proyectos_activos:
         return {"error": "No hay proyectos activos para clasificar"}
 
     # Asegurar que cada proyecto tenga su .md
+    # Usa los campos nuevos (descripcion, objetivos) con fallback a palabras_clave legacy
     for p in proyectos_activos:
-        crear_md_proyecto(p["nombre"], p.get("palabras_clave", ""), p.get("inicio"))
+        descripcion = p.get("descripcion", "") or p.get("palabras_clave", "")
+        objetivos = p.get("objetivos", "")
+        crear_md_proyecto(p["nombre"], descripcion, objetivos, p.get("inicio"))
 
     # Resetear data de Gantt para reconstruir desde cero
     gantt_data = cargar_gantt_data()
@@ -546,8 +570,13 @@ def _detectar_personas_proyecto(contenido: str, cfg: dict) -> list:
         if isinstance(nombre, str) and nombre.strip():
             candidatos.add(nombre.strip())
     for p in cfg.get("proyectos", []) or []:
-        kws = p.get("palabras_clave", "") or ""
-        for m in re.finditer(r"\b([A-ZÁ-Ú][a-zá-ú]+\s+[A-ZÁ-Ú][a-zá-ú]+)\b", kws):
+        # Combinar descripción + objetivos + palabras_clave (legacy)
+        texto_proyecto = " ".join([
+            p.get("descripcion", "") or "",
+            p.get("objetivos", "") or "",
+            p.get("palabras_clave", "") or "",
+        ])
+        for m in re.finditer(r"\b([A-ZÁ-Ú][a-zá-ú]+\s+[A-ZÁ-Ú][a-zá-ú]+)\b", texto_proyecto):
             candidatos.add(m.group(1).strip())
 
     contenido_norm = norm(contenido)
@@ -596,14 +625,14 @@ def _listar_snippets_de_proyecto(nombre_proyecto: str) -> list:
     Ordenada por fecha+hora descendente (más reciente primero).
     """
     config = cargar_config()
-    ruta_snippets = Path(config["ruta_base"]) / "bitacoras" / "snippets"
-    if not ruta_snippets.exists():
+    ruta_snippets_dir = ruta_snippets()
+    if not ruta_snippets_dir.exists():
         return []
 
     encontrados = []
     slug = _slug_proyecto_para_tag(nombre_proyecto)
 
-    for archivo in ruta_snippets.glob("*.md"):
+    for archivo in ruta_snippets_dir.glob("*.md"):
         try:
             contenido = archivo.read_text(encoding="utf-8")
         except Exception:

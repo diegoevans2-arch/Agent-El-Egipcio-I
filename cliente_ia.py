@@ -386,47 +386,74 @@ class ClienteIA:
     # Clasificación rápida (modelo barato)
     # ------------------------------------------------------------------
     def clasificar(self, prompt: str, max_tokens: int = 30,
-                   tipo_operacion: Optional[str] = None) -> str:
+                   tipo_operacion: Optional[str] = None,
+                   temperature: Optional[float] = None) -> str:
         """
         Tarea rápida y barata: usa el modelo rápido del proveedor.
         Ideal para clasificar actividades.
 
-        tipo_operacion: etiqueta FinOps (típicamente "clasificacion_proyecto").
-        El registro usa self.modelo_rapido, no self.modelo.
+        Args:
+            prompt: el prompt completo a enviar al LLM.
+            max_tokens: tope de tokens de respuesta.
+            tipo_operacion: etiqueta FinOps (típicamente "clasificacion_proyecto").
+            temperature: temperatura de muestreo (0.0–1.0). Si es None, se usa
+                el default del proveedor. Valores bajos (0.0–0.2) favorecen
+                clasificación determinista; valores altos introducen variación.
+
+        El registro FinOps usa self.modelo_rapido, no self.modelo.
         """
+        # Clamp defensivo: la temperatura debe estar en [0.0, 1.0]
+        if temperature is not None:
+            temperature = max(0.0, min(1.0, float(temperature)))
+
         tokens_in, tokens_out = 0, 0
         try:
             if self.proveedor == "claude":
-                respuesta = self._sdk.messages.create(
-                    model=self.modelo_rapido,
-                    max_tokens=max_tokens,
-                    messages=[{"role": "user", "content": prompt}]
-                )
+                kwargs = {
+                    "model": self.modelo_rapido,
+                    "max_tokens": max_tokens,
+                    "messages": [{"role": "user", "content": prompt}],
+                }
+                if temperature is not None:
+                    kwargs["temperature"] = temperature
+                respuesta = self._sdk.messages.create(**kwargs)
                 tokens_in, tokens_out = self._extraer_tokens_claude(respuesta)
                 return respuesta.content[0].text.strip()
 
             elif self.proveedor == "openai":
-                respuesta = self._sdk.chat.completions.create(
-                    model=self.modelo_rapido,
-                    max_tokens=max_tokens,
-                    messages=[{"role": "user", "content": prompt}]
-                )
+                kwargs = {
+                    "model": self.modelo_rapido,
+                    "max_tokens": max_tokens,
+                    "messages": [{"role": "user", "content": prompt}],
+                }
+                if temperature is not None:
+                    kwargs["temperature"] = temperature
+                respuesta = self._sdk.chat.completions.create(**kwargs)
                 tokens_in, tokens_out = self._extraer_tokens_openai(respuesta)
                 return respuesta.choices[0].message.content.strip()
 
             elif self.proveedor == "gemini":
                 if self._cliente_gemini is not None:
                     from google.genai import types
+                    config_kwargs = {"max_output_tokens": max_tokens}
+                    if temperature is not None:
+                        config_kwargs["temperature"] = temperature
                     respuesta = self._cliente_gemini.models.generate_content(
                         model=self.modelo_rapido,
                         contents=prompt,
-                        config=types.GenerateContentConfig(max_output_tokens=max_tokens)
+                        config=types.GenerateContentConfig(**config_kwargs)
                     )
                     tokens_in, tokens_out = self._extraer_tokens_gemini(respuesta)
                     return respuesta.text.strip()
                 else:
                     modelo = self._sdk.GenerativeModel(self.modelo_rapido)
-                    respuesta = modelo.generate_content(prompt)
+                    if temperature is not None:
+                        respuesta = modelo.generate_content(
+                            prompt,
+                            generation_config={"temperature": temperature}
+                        )
+                    else:
+                        respuesta = modelo.generate_content(prompt)
                     tokens_in, tokens_out = self._extraer_tokens_gemini(respuesta)
                     return respuesta.text.strip()
         finally:

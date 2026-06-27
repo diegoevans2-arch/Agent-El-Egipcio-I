@@ -15,14 +15,22 @@ from PyQt5.QtWidgets import (
     QLabel, QPushButton, QLineEdit, QTextEdit,
     QSystemTrayIcon, QMenu, QAction, QDialog,
     QDialogButtonBox, QFrame, QSizePolicy, QScrollArea,
-    QComboBox, QMessageBox, QSpinBox, QCompleter
+    QComboBox, QMessageBox, QSpinBox, QDoubleSpinBox, QCompleter
 )
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QObject, QThread, QStringListModel
 from PyQt5.QtGui import QIcon, QFont, QColor, QPixmap, QCursor
 
-from utils import cargar_config
+from utils import cargar_config, ruta_bitacoras, ruta_proyectos, uri_obsidian
 from chat import GestorChat, SYSTEM_PROMPT
-from gantt import agregar_proyecto, editar_proyecto, obtener_proyectos, generar_mermaid
+from gantt import (
+    agregar_proyecto, editar_proyecto, obtener_proyectos, generar_mermaid,
+    PROMPT_CLASIFICACION_DEFAULT, PLACEHOLDERS_CLASIFICACION,
+    validar_prompt_clasificacion,
+)
+from captura import (
+    PROMPT_IMAGEN_ACTIVIDAD_DEFAULT, PROMPT_IMAGEN_REUNION_DEFAULT,
+    PLACEHOLDERS_IMAGEN, validar_prompt_imagen,
+)
 from proyectos import (
     crear_md_proyecto, ruta_md_proyecto, listar_proyectos_con_md,
     migrar_bitacoras_antiguas, _slugify
@@ -1024,7 +1032,7 @@ class VentanaAgente(QWidget):
     def _abrir_bitacora(self):
         config = cargar_config()
         app_bitacora = config.get("app_bitacora", "auto")
-        ruta_base = Path(config["ruta_base"]) / "bitacoras"
+        ruta_base = ruta_bitacoras()
         fecha = datetime.now().strftime("%Y-%m-%d")
         archivo = ruta_base / f"bitacora_{fecha}.md"
 
@@ -1032,7 +1040,9 @@ class VentanaAgente(QWidget):
             ruta_1 = config.get("ruta_obsidian_1", "")
             ruta_2 = config.get("ruta_obsidian_2", "")
 
-            uri = f"obsidian://open?vault=bitacoras&file=bitacora_{fecha}"
+            # El archivo vive en bitacoras/ dentro del vault. El URI usa el
+            # nombre real del vault (derivado de ruta_base), no "bitacoras".
+            uri = uri_obsidian(f"bitacoras/bitacora_{fecha}")
             if Path(ruta_1).exists() or Path(ruta_2).exists():
                 os.startfile(uri)
             else:
@@ -1345,10 +1355,24 @@ class PopupProyectos(QDialog):
         self._aplicar_estilo()
 
     def _limpiar(self):
-        while self._layout.count():
-            item = self._layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+        """
+        Vacía el layout principal destruyendo TODOS los widgets, incluyendo
+        los que están dentro de sub-layouts (QHBoxLayout anidados, etc.).
+
+        La versión anterior solo destruía widgets de primer nivel — los
+        widgets dentro de sub-layouts quedaban huérfanos pero vivos en
+        memoria, lo que causaba que referencias como `self.campo_temperatura`
+        pudieran terminar apuntando a spinboxes fantasma al reabrir un
+        formulario, generando bugs intermitentes de persistencia.
+        """
+        def _vaciar_layout(layout):
+            while layout.count():
+                item = layout.takeAt(0)
+                if item.widget():
+                    item.widget().deleteLater()
+                elif item.layout():
+                    _vaciar_layout(item.layout())
+        _vaciar_layout(self._layout)
 
     def _aplicar_estilo(self):
         """Aplica el stylesheet del tema activo a este popup."""
@@ -1446,7 +1470,11 @@ class PopupProyectos(QDialog):
         if not activo:
             nombre.setObjectName("nombre_cerrado")
 
-        kw_texto = p.get("palabras_clave", "") or "(sin palabras clave)"
+        kw_texto = (
+            p.get("descripcion", "")
+            or p.get("palabras_clave", "")
+            or "(sin descripción)"
+        )
         kw = QLabel(kw_texto[:50])
         kw.setObjectName("subtitulo_cerrado" if not activo else "subtitulo")
 
@@ -1487,21 +1515,56 @@ class PopupProyectos(QDialog):
         titulo.setFont(QFont("Segoe UI", 10, QFont.Bold))
         self._layout.addWidget(titulo)
 
+        # Título
         self._layout.addWidget(QLabel("Título del proyecto:"))
         self.campo_titulo = QLineEdit()
         self.campo_titulo.setPlaceholderText("Ej: Maestro Estudiantes")
         self._layout.addWidget(self.campo_titulo)
 
-        lbl_kw = QLabel("Palabras clave (separa con comas):")
-        self._layout.addWidget(lbl_kw)
-        self.campo_kw = QTextEdit()
-        self.campo_kw.setPlaceholderText("Ej: matrícula, SMRPAAP, query estudiantes, DBeaver")
-        self.campo_kw.setMinimumHeight(80)        # ← DIMENSIÓN: alto mínimo campo palabras clave (nuevo)
-        self.campo_kw.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self._layout.addWidget(self.campo_kw)
+        # Descripción general
+        self._layout.addWidget(QLabel("Descripción general:"))
+        self.campo_descripcion = QTextEdit()
+        self.campo_descripcion.setPlaceholderText(
+            "Describe qué es este proyecto: contexto, fuentes de datos, "
+            "stakeholders, herramientas principales..."
+        )
+        self.campo_descripcion.setMinimumHeight(80)
+        self.campo_descripcion.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self._layout.addWidget(self.campo_descripcion)
 
-        lbl_hint = QLabel("El agente usará estas palabras para clasificar automáticamente\nlas actividades detectadas en pantalla.")
+        # Objetivos específicos
+        self._layout.addWidget(QLabel("Objetivos específicos:"))
+        self.campo_objetivos = QTextEdit()
+        self.campo_objetivos.setPlaceholderText(
+            "Lista las actividades concretas que cuentan como parte del "
+            "proyecto. Ej: 'Construir query SQL en Athena para tabla X', "
+            "'Validar resultados con DBeaver', 'Reunión con Pablo Rubilar'."
+        )
+        self.campo_objetivos.setMinimumHeight(80)
+        self.campo_objetivos.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self._layout.addWidget(self.campo_objetivos)
+
+        # Temperatura de clasificación
+        fila_temp = QHBoxLayout()
+        lbl_temp = QLabel("Temperatura de clasificación:")
+        self.campo_temperatura = QDoubleSpinBox()
+        self.campo_temperatura.setRange(0.0, 1.0)
+        self.campo_temperatura.setSingleStep(0.1)
+        self.campo_temperatura.setDecimals(1)
+        self.campo_temperatura.setValue(0.2)
+        self.campo_temperatura.setFixedWidth(80)
+        fila_temp.addWidget(lbl_temp)
+        fila_temp.addWidget(self.campo_temperatura)
+        fila_temp.addStretch()
+        self._layout.addLayout(fila_temp)
+
+        lbl_hint = QLabel(
+            "🎯 Mientras más específicos sean los objetivos, mejor la clasificación.\n"
+            "🌡 Temperatura baja (0.0–0.2) → clasificación determinista.\n"
+            "🌡 Temperatura alta (0.5+) → más variación, útil si el proyecto es transversal."
+        )
         lbl_hint.setObjectName("subtitulo")
+        lbl_hint.setWordWrap(True)
         self._layout.addWidget(lbl_hint)
 
         self._layout.addStretch()
@@ -1517,13 +1580,19 @@ class PopupProyectos(QDialog):
 
     def _guardar_nuevo(self):
         nombre = self.campo_titulo.text().strip()
-        kw = self.campo_kw.toPlainText().strip()
+        descripcion = self.campo_descripcion.toPlainText().strip()
+        objetivos = self.campo_objetivos.toPlainText().strip()
+        # interpretText() fuerza al spinbox a procesar el texto pendiente
+        # antes de leer .value(). Previene perder cambios cuando el usuario
+        # tipea un valor y presiona Guardar sin Enter ni cambiar foco.
+        self.campo_temperatura.interpretText()
+        temperatura = float(self.campo_temperatura.value())
         if not nombre:
             return
-        agregar_proyecto(nombre, kw)
+        agregar_proyecto(nombre, descripcion, objetivos, temperatura)
         # Crear archivo .md del proyecto en Obsidian
         try:
-            crear_md_proyecto(nombre, kw)
+            crear_md_proyecto(nombre, descripcion, objetivos)
         except Exception as e:
             print(f"[Proyectos] Error creando .md: {e}")
         self._mostrar_lista()
@@ -1539,20 +1608,50 @@ class PopupProyectos(QDialog):
             config_raw = _json.load(_f)
         proyecto = config_raw["proyectos"][indice]
 
+        # Migración silenciosa en pantalla: si no hay campo nuevo, usar legacy
+        descripcion_inicial = proyecto.get("descripcion", "") or proyecto.get("palabras_clave", "")
+        objetivos_inicial = proyecto.get("objetivos", "")
+        temperatura_inicial = float(proyecto.get("temperatura", 0.2) or 0.2)
+        temperatura_inicial = max(0.0, min(1.0, temperatura_inicial))
+
         titulo = QLabel(f"✏️ Editar proyecto")
         titulo.setFont(QFont("Segoe UI", 10, QFont.Bold))
         self._layout.addWidget(titulo)
 
+        # Título
         self._layout.addWidget(QLabel("Título:"))
         self.campo_titulo = QLineEdit(proyecto.get("nombre", ""))
         self._layout.addWidget(self.campo_titulo)
 
-        self._layout.addWidget(QLabel("Palabras clave:"))
-        self.campo_kw = QTextEdit()
-        self.campo_kw.setPlainText(proyecto.get("palabras_clave", ""))
-        self.campo_kw.setMinimumHeight(80)        # ← DIMENSIÓN: alto mínimo campo palabras clave (edición)
-        self.campo_kw.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self._layout.addWidget(self.campo_kw)
+        # Descripción general
+        self._layout.addWidget(QLabel("Descripción general:"))
+        self.campo_descripcion = QTextEdit()
+        self.campo_descripcion.setPlainText(descripcion_inicial)
+        self.campo_descripcion.setMinimumHeight(80)
+        self.campo_descripcion.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self._layout.addWidget(self.campo_descripcion)
+
+        # Objetivos específicos
+        self._layout.addWidget(QLabel("Objetivos específicos:"))
+        self.campo_objetivos = QTextEdit()
+        self.campo_objetivos.setPlainText(objetivos_inicial)
+        self.campo_objetivos.setMinimumHeight(80)
+        self.campo_objetivos.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self._layout.addWidget(self.campo_objetivos)
+
+        # Temperatura
+        fila_temp = QHBoxLayout()
+        lbl_temp = QLabel("Temperatura de clasificación:")
+        self.campo_temperatura = QDoubleSpinBox()
+        self.campo_temperatura.setRange(0.0, 1.0)
+        self.campo_temperatura.setSingleStep(0.1)
+        self.campo_temperatura.setDecimals(1)
+        self.campo_temperatura.setValue(temperatura_inicial)
+        self.campo_temperatura.setFixedWidth(80)
+        fila_temp.addWidget(lbl_temp)
+        fila_temp.addWidget(self.campo_temperatura)
+        fila_temp.addStretch()
+        self._layout.addLayout(fila_temp)
 
         self._layout.addStretch()
 
@@ -1567,20 +1666,34 @@ class PopupProyectos(QDialog):
 
     def _guardar_edicion(self, indice: int):
         nombre = self.campo_titulo.text().strip()
-        kw = self.campo_kw.toPlainText().strip()
+        descripcion = self.campo_descripcion.toPlainText().strip()
+        objetivos = self.campo_objetivos.toPlainText().strip()
+        # interpretText() fuerza al spinbox a procesar el texto pendiente
+        # antes de leer .value(). Previene perder cambios cuando el usuario
+        # tipea un valor y presiona Guardar sin Enter ni cambiar foco.
+        self.campo_temperatura.interpretText()
+        temperatura = float(self.campo_temperatura.value())
         if not nombre:
             return
-        editar_proyecto(indice, nombre, kw, "activo")
+        editar_proyecto(indice, nombre, descripcion, objetivos, temperatura, "activo")
         self._mostrar_lista()
 
     def _cerrar_proyecto(self, indice: int):
+        """
+        Cierra un proyecto activo. Preserva todos los campos actuales y solo
+        cambia el estado a 'cerrado'.
+        """
         import json as _json
         ruta_cfg = Path(__file__).parent / "config.json"
         with open(ruta_cfg, encoding="utf-8") as _f:
             config_raw = _json.load(_f)
         proyecto = config_raw["proyectos"][indice]
+        # Migración silenciosa: si el proyecto venía sin campos nuevos, los rellenamos
+        descripcion = proyecto.get("descripcion", "") or proyecto.get("palabras_clave", "")
+        objetivos = proyecto.get("objetivos", "")
+        temperatura = float(proyecto.get("temperatura", 0.2) or 0.2)
         editar_proyecto(indice, proyecto.get("nombre", ""),
-                        proyecto.get("palabras_clave", ""),
+                        descripcion, objetivos, temperatura,
                         "cerrado")
         self._mostrar_lista()
 
@@ -1594,8 +1707,11 @@ class PopupProyectos(QDialog):
         with open(ruta_cfg, encoding="utf-8") as _f:
             config_raw = _json.load(_f)
         proyecto = config_raw["proyectos"][indice]
+        descripcion = proyecto.get("descripcion", "") or proyecto.get("palabras_clave", "")
+        objetivos = proyecto.get("objetivos", "")
+        temperatura = float(proyecto.get("temperatura", 0.2) or 0.2)
         editar_proyecto(indice, proyecto.get("nombre", ""),
-                        proyecto.get("palabras_clave", ""),
+                        descripcion, objetivos, temperatura,
                         "activo")
         self._mostrar_lista()
 
@@ -1659,22 +1775,15 @@ class PopupProyectos(QDialog):
 
     @staticmethod
     def _abrir_obsidian_archivo(archivo: Path):
-        """Abre un archivo .md específico en Obsidian (o la carpeta si no se puede)."""
+        """Abre el vault en Obsidian (o la carpeta del archivo si no se puede)."""
         config = cargar_config()
-        ruta_base = Path(config["ruta_base"]) / "bitacoras"
         ruta_1 = config.get("ruta_obsidian_1", "")
         ruta_2 = config.get("ruta_obsidian_2", "")
 
-        ruta_obsidian = None
-        if ruta_1 and Path(ruta_1).exists():
-            ruta_obsidian = ruta_1
-        elif ruta_2 and Path(ruta_2).exists():
-            ruta_obsidian = ruta_2
-
-        if ruta_obsidian:
-            # Obsidian no acepta abrir archivo directo por CLI fácilmente,
-            # abrimos el vault y el usuario navega — pero al menos lo dejamos abierto
-            subprocess.Popen([ruta_obsidian, str(ruta_base)], shell=True)
+        if (ruta_1 and Path(ruta_1).exists()) or (ruta_2 and Path(ruta_2).exists()):
+            # Abrir el vault por nombre vía URI (no por ruta de carpeta, que
+            # Obsidian podría malinterpretar como un vault nuevo).
+            os.startfile(uri_obsidian())
         else:
             subprocess.Popen(["explorer", str(archivo.parent)], shell=True)
 
@@ -1748,41 +1857,59 @@ class PopupGantt(QDialog):
         self.setStyleSheet(_stylesheet_popup_gantt(temas.obtener_paleta_activa()))
 
     def _abrir_global(self):
-        """Abre el archivo gantt_proyectos.md global."""
-        config = cargar_config()
-        ruta_base = Path(config["ruta_base"]) / "bitacoras"
-        archivo = ruta_base / "gantt_proyectos.md"
-
+        """Abre el archivo gantt_proyectos.md global en Obsidian."""
+        archivo = ruta_proyectos() / "gantt_proyectos.md"
         if not archivo.exists():
             generar_mermaid()
-
-        self._abrir_en_obsidian(ruta_base)
+        # Abre el archivo específico vía URI (vault real + ruta relativa)
+        self._abrir_archivo_en_obsidian("proyectos/gantt_proyectos", archivo)
         self.accept()
 
     def _abrir_proyecto(self):
-        """Abre el .md del proyecto seleccionado."""
+        """Abre el .md del proyecto seleccionado en Obsidian."""
         nombre = self.combo.currentText()
         if not nombre or "(No hay" in nombre:
             return
         ruta = ruta_md_proyecto(nombre)
         if not ruta.exists():
             crear_md_proyecto(nombre)
-
-        config = cargar_config()
-        ruta_base = Path(config["ruta_base"]) / "bitacoras"
-        self._abrir_en_obsidian(ruta_base)
+        # El nombre de archivo del MOC (sin .md) relativo a proyectos/
+        nombre_archivo = ruta.stem
+        self._abrir_archivo_en_obsidian(f"proyectos/{nombre_archivo}", ruta)
         self.accept()
 
-    def _abrir_en_obsidian(self, ruta_base: Path):
-        """Abre el vault de Obsidian. El usuario navega al archivo desde ahí."""
+    def _abrir_archivo_en_obsidian(self, ruta_relativa_vault: str, archivo_fallback: Path):
+        """
+        Abre un archivo específico en Obsidian vía URI obsidian://, usando el
+        nombre real del vault. Si Obsidian no está disponible, abre la carpeta
+        contenedora en el Explorador como fallback.
+
+        Args:
+            ruta_relativa_vault: ruta del archivo relativa a la raíz del vault,
+                con "/" y SIN extensión (ej: "proyectos/gantt_proyectos").
+            archivo_fallback: Path real del archivo, para el fallback a Explorer.
+        """
         config = cargar_config()
         ruta_1 = config.get("ruta_obsidian_1", "")
         ruta_2 = config.get("ruta_obsidian_2", "")
 
-        if ruta_1 and Path(ruta_1).exists():
-            subprocess.Popen([ruta_1, str(ruta_base)], shell=True)
-        elif ruta_2 and Path(ruta_2).exists():
-            subprocess.Popen([ruta_2, str(ruta_base)], shell=True)
+        if (ruta_1 and Path(ruta_1).exists()) or (ruta_2 and Path(ruta_2).exists()):
+            os.startfile(uri_obsidian(ruta_relativa_vault))
+        else:
+            subprocess.Popen(["explorer", str(archivo_fallback.parent)], shell=True)
+
+    def _abrir_en_obsidian(self, ruta_base: Path):
+        """
+        Abre el vault de Obsidian (sin archivo específico). El usuario navega
+        desde ahí. Se mantiene como fallback para usos genéricos.
+        """
+        config = cargar_config()
+        ruta_1 = config.get("ruta_obsidian_1", "")
+        ruta_2 = config.get("ruta_obsidian_2", "")
+
+        if (ruta_1 and Path(ruta_1).exists()) or (ruta_2 and Path(ruta_2).exists()):
+            # Abrir el vault por nombre vía URI, no por ruta de carpeta
+            os.startfile(uri_obsidian())
         else:
             subprocess.Popen(["explorer", str(ruta_base)], shell=True)
 
@@ -1962,6 +2089,99 @@ class PopupConfiguraciones(QDialog):
         fila_btn_prompt.addWidget(self.btn_restaurar_prompt)
         layout.addLayout(fila_btn_prompt)
 
+        # --- Sección: Prompt de clasificación de proyectos ---
+        layout.addWidget(self._titulo_seccion("🎯 Prompt de clasificación de proyectos"))
+        placeholders_listado = ", ".join(
+            "{" + ph + "}" for ph in PLACEHOLDERS_CLASIFICACION
+        )
+        layout.addWidget(self._hint(
+            "Plantilla del prompt que el LLM recibe para decidir a qué proyecto\n"
+            "pertenece cada actividad detectada.\n\n"
+            "Placeholders OBLIGATORIOS (deben aparecer textualmente):\n"
+            "  • {titulo_ventana}        → título de la ventana detectada\n"
+            "  • {descripcion_actividad} → resumen de la actividad\n"
+            "  • {lista_proyectos}       → bloque con descripción y objetivos de cada proyecto\n"
+            "  • {lista_nombres}         → lista de nombres válidos como respuesta\n\n"
+            "Si falta cualquier placeholder, el guardado será rechazado.\n"
+            "Si el campo queda vacío, se usa la plantilla por defecto."
+        ))
+        self.txt_prompt_clasificacion = QTextEdit()
+        self.txt_prompt_clasificacion.setMinimumHeight(220)
+        self.txt_prompt_clasificacion.setFont(QFont("Consolas", 9))
+        layout.addWidget(self.txt_prompt_clasificacion)
+
+        # Botón restaurar default para el prompt de clasificación
+        fila_btn_clas = QHBoxLayout()
+        fila_btn_clas.addStretch()
+        self.btn_restaurar_clasificacion = QPushButton("↺ Restaurar default")
+        self.btn_restaurar_clasificacion.setToolTip(
+            "Reemplaza el contenido del campo con la plantilla por defecto.\n"
+            "Recuerda presionar 'Guardar cambios' para persistir."
+        )
+        self.btn_restaurar_clasificacion.clicked.connect(
+            self._restaurar_prompt_clasificacion_default
+        )
+        fila_btn_clas.addWidget(self.btn_restaurar_clasificacion)
+        layout.addLayout(fila_btn_clas)
+
+        # --- Sección: Prompt de análisis de imágenes (actividad) ---
+        layout.addWidget(self._titulo_seccion("🖼️ Prompt de análisis de imágenes — Actividad"))
+        layout.addWidget(self._hint(
+            "Plantilla del prompt que el LLM recibe al analizar una captura de\n"
+            "actividad normal (no reunión). Debe pedir un JSON con los campos\n"
+            "actividad, categoria, herramienta y urls.\n\n"
+            "Placeholder OBLIGATORIO:\n"
+            "  • {titulo_ventana}  → título de la ventana detectada\n\n"
+            "Si falta, el guardado será rechazado. Si el campo queda vacío,\n"
+            "se usa la plantilla por defecto."
+        ))
+        self.txt_prompt_img_actividad = QTextEdit()
+        self.txt_prompt_img_actividad.setMinimumHeight(200)
+        self.txt_prompt_img_actividad.setFont(QFont("Consolas", 9))
+        layout.addWidget(self.txt_prompt_img_actividad)
+
+        fila_btn_img_act = QHBoxLayout()
+        fila_btn_img_act.addStretch()
+        self.btn_restaurar_img_actividad = QPushButton("↺ Restaurar default")
+        self.btn_restaurar_img_actividad.setToolTip(
+            "Reemplaza el contenido con la plantilla por defecto.\n"
+            "Recuerda presionar 'Guardar cambios' para persistir."
+        )
+        self.btn_restaurar_img_actividad.clicked.connect(
+            self._restaurar_prompt_img_actividad_default
+        )
+        fila_btn_img_act.addWidget(self.btn_restaurar_img_actividad)
+        layout.addLayout(fila_btn_img_act)
+
+        # --- Sección: Prompt de análisis de imágenes (reunión) ---
+        layout.addWidget(self._titulo_seccion("🖼️ Prompt de análisis de imágenes — Reunión"))
+        layout.addWidget(self._hint(
+            "Plantilla del prompt que el LLM recibe al analizar una captura\n"
+            "durante una reunión. Debe detectar si se proyecta contenido y pedir\n"
+            "un JSON con hay_proyeccion, descripcion, tipo_contenido y urls.\n\n"
+            "Placeholder OBLIGATORIO:\n"
+            "  • {titulo_ventana}  → título de la ventana de la reunión\n\n"
+            "Si falta, el guardado será rechazado. Si el campo queda vacío,\n"
+            "se usa la plantilla por defecto."
+        ))
+        self.txt_prompt_img_reunion = QTextEdit()
+        self.txt_prompt_img_reunion.setMinimumHeight(200)
+        self.txt_prompt_img_reunion.setFont(QFont("Consolas", 9))
+        layout.addWidget(self.txt_prompt_img_reunion)
+
+        fila_btn_img_reu = QHBoxLayout()
+        fila_btn_img_reu.addStretch()
+        self.btn_restaurar_img_reunion = QPushButton("↺ Restaurar default")
+        self.btn_restaurar_img_reunion.setToolTip(
+            "Reemplaza el contenido con la plantilla por defecto.\n"
+            "Recuerda presionar 'Guardar cambios' para persistir."
+        )
+        self.btn_restaurar_img_reunion.clicked.connect(
+            self._restaurar_prompt_img_reunion_default
+        )
+        fila_btn_img_reu.addWidget(self.btn_restaurar_img_reunion)
+        layout.addLayout(fila_btn_img_reu)
+
         # --- Sección: Modelo de IA ---
         layout.addWidget(self._titulo_seccion("🤖 Modelo de IA"))
 
@@ -2102,6 +2322,25 @@ class PopupConfiguraciones(QDialog):
             prompt_guardado if prompt_guardado else SYSTEM_PROMPT
         )
 
+        # Prompt de clasificación: mismo patrón. Si está vacío en config,
+        # se muestra el default como punto de partida editable.
+        prompt_clas_guardado = (cfg.get("prompt_clasificacion") or "").strip()
+        self.txt_prompt_clasificacion.setPlainText(
+            prompt_clas_guardado if prompt_clas_guardado else PROMPT_CLASIFICACION_DEFAULT
+        )
+
+        # Prompts de imagen (actividad y reunión): mismo patrón.
+        prompt_img_act_guardado = (cfg.get("prompt_imagen_actividad") or "").strip()
+        self.txt_prompt_img_actividad.setPlainText(
+            prompt_img_act_guardado if prompt_img_act_guardado
+            else PROMPT_IMAGEN_ACTIVIDAD_DEFAULT
+        )
+        prompt_img_reu_guardado = (cfg.get("prompt_imagen_reunion") or "").strip()
+        self.txt_prompt_img_reunion.setPlainText(
+            prompt_img_reu_guardado if prompt_img_reu_guardado
+            else PROMPT_IMAGEN_REUNION_DEFAULT
+        )
+
         # Modelo de IA: seleccionar el modelo guardado para el proveedor activo
         proveedor_activo = cfg.get("ia_proveedor", "claude")
         modelo_default = MODELOS_PRINCIPALES.get(proveedor_activo, "")
@@ -2134,6 +2373,40 @@ class PopupConfiguraciones(QDialog):
             "Prompt restaurado",
             "Se cargó el prompt por defecto en el campo.\n"
             "Presiona 'Guardar cambios' para aplicarlo."
+        )
+
+    def _restaurar_prompt_clasificacion_default(self):
+        """
+        Reemplaza el contenido del textarea de clasificación con el template
+        por defecto. Solo afecta el textarea — el cambio recién se persiste
+        cuando el usuario presiona "Guardar cambios".
+        """
+        self.txt_prompt_clasificacion.setPlainText(PROMPT_CLASIFICACION_DEFAULT)
+        QMessageBox.information(
+            self,
+            "Plantilla restaurada",
+            "Se cargó la plantilla por defecto en el campo.\n"
+            "Presiona 'Guardar cambios' para aplicarla."
+        )
+
+    def _restaurar_prompt_img_actividad_default(self):
+        """Restaura el prompt de imagen (actividad) al default en el textarea."""
+        self.txt_prompt_img_actividad.setPlainText(PROMPT_IMAGEN_ACTIVIDAD_DEFAULT)
+        QMessageBox.information(
+            self,
+            "Plantilla restaurada",
+            "Se cargó la plantilla de actividad por defecto en el campo.\n"
+            "Presiona 'Guardar cambios' para aplicarla."
+        )
+
+    def _restaurar_prompt_img_reunion_default(self):
+        """Restaura el prompt de imagen (reunión) al default en el textarea."""
+        self.txt_prompt_img_reunion.setPlainText(PROMPT_IMAGEN_REUNION_DEFAULT)
+        QMessageBox.information(
+            self,
+            "Plantilla restaurada",
+            "Se cargó la plantilla de reunión por defecto en el campo.\n"
+            "Presiona 'Guardar cambios' para aplicarla."
         )
 
     # ------------------------------------------------------------------
@@ -2550,6 +2823,59 @@ class PopupConfiguraciones(QDialog):
 
     def _guardar(self):
         """Guarda los cambios al config.json y aplica en caliente."""
+        # VALIDACIÓN BLOQUEANTE (antes de tocar el config):
+        # El prompt de clasificación debe contener TODOS los placeholders
+        # críticos. Si no es así, se rechaza el guardado.
+        prompt_clas_textarea = self.txt_prompt_clasificacion.toPlainText().strip()
+        # Solo validar si el usuario escribió algo (vacío = se usará el default,
+        # lo cual siempre es válido).
+        if prompt_clas_textarea:
+            es_valido, faltantes = validar_prompt_clasificacion(prompt_clas_textarea)
+            if not es_valido:
+                placeholders_faltantes = "\n".join(
+                    f"  • {{{ph}}}" for ph in faltantes
+                )
+                QMessageBox.critical(
+                    self,
+                    "❌ Prompt de clasificación inválido",
+                    "No se puede guardar: el prompt de clasificación está "
+                    "incompleto.\n\n"
+                    f"Faltan los siguientes placeholders obligatorios:\n"
+                    f"{placeholders_faltantes}\n\n"
+                    "Agrega los placeholders faltantes (con sus llaves textuales) "
+                    "o presiona '↺ Restaurar default' para volver a la plantilla "
+                    "por defecto."
+                )
+                return  # ← Bloqueo del guardado; el config.json no se modifica
+
+        # Validación bloqueante de los prompts de imagen (actividad y reunión).
+        # Mismo principio: vacío es válido (usa default); con contenido debe
+        # incluir {titulo_ventana}.
+        prompt_img_act_textarea = self.txt_prompt_img_actividad.toPlainText().strip()
+        prompt_img_reu_textarea = self.txt_prompt_img_reunion.toPlainText().strip()
+
+        for textarea_valor, nombre_legible in [
+            (prompt_img_act_textarea, "actividad"),
+            (prompt_img_reu_textarea, "reunión"),
+        ]:
+            if textarea_valor:
+                es_valido, faltantes = validar_prompt_imagen(textarea_valor)
+                if not es_valido:
+                    placeholders_faltantes = "\n".join(
+                        f"  • {{{ph}}}" for ph in faltantes
+                    )
+                    QMessageBox.critical(
+                        self,
+                        f"❌ Prompt de imagen ({nombre_legible}) inválido",
+                        f"No se puede guardar: el prompt de imagen de "
+                        f"{nombre_legible} está incompleto.\n\n"
+                        f"Faltan los siguientes placeholders obligatorios:\n"
+                        f"{placeholders_faltantes}\n\n"
+                        "Agrega los placeholders faltantes (con sus llaves "
+                        "textuales) o presiona '↺ Restaurar default'."
+                    )
+                    return  # ← Bloqueo del guardado
+
         try:
             # Releer config para no pisar otros campos modificados
             with open(self._ruta_config, encoding="utf-8") as f:
@@ -2574,6 +2900,25 @@ class PopupConfiguraciones(QDialog):
                 cfg["system_prompt"] = ""
             else:
                 cfg["system_prompt"] = prompt_textarea
+
+            # Prompt de clasificación: misma lógica. Si está vacío o coincide
+            # con el default, persistimos cadena vacía. Si difiere, guardamos
+            # el contenido (ya validado al inicio del método).
+            if not prompt_clas_textarea or prompt_clas_textarea == PROMPT_CLASIFICACION_DEFAULT.strip():
+                cfg["prompt_clasificacion"] = ""
+            else:
+                cfg["prompt_clasificacion"] = prompt_clas_textarea
+
+            # Prompts de imagen: misma lógica de "vacío o == default → ''".
+            if not prompt_img_act_textarea or prompt_img_act_textarea == PROMPT_IMAGEN_ACTIVIDAD_DEFAULT.strip():
+                cfg["prompt_imagen_actividad"] = ""
+            else:
+                cfg["prompt_imagen_actividad"] = prompt_img_act_textarea
+
+            if not prompt_img_reu_textarea or prompt_img_reu_textarea == PROMPT_IMAGEN_REUNION_DEFAULT.strip():
+                cfg["prompt_imagen_reunion"] = ""
+            else:
+                cfg["prompt_imagen_reunion"] = prompt_img_reu_textarea
 
             # Guardar modelo de IA seleccionado para el proveedor activo
             proveedor_activo = cfg.get("ia_proveedor", "claude")

@@ -1,33 +1,51 @@
-# Python
+# ==========================================================================
+# El Egypcio — .gitignore
+# ==========================================================================
+
+# --- Configuración local con datos sensibles (NUNCA subir) ---
+# config.json contiene API keys y rutas personales. Cada usuario crea el
+# suyo a partir de config_template.json.
+config.json
+
+# Estado de runtime del agente
+estado.json
+
+# Log de diagnóstico del QA (se genera si el QA de arranque falla)
+qa_error_log.txt
+
+# --- El vault de Obsidian (contenido personal del usuario) ---
+# Si tu vault es una subcarpeta del repo (ej. Naos/), ignóralo para no
+# subir tus bitácoras, notas y datos personales. Ajusta el nombre si tu
+# vault se llama distinto.
+Naos/
+*/.obsidian/
+
+# --- Python ---
 __pycache__/
 *.py[cod]
-*.pyo
-*.egg-info/
-dist/
+*$py.class
+*.so
+.Python
 build/
-*.egg
-.eggs/
-*.whl
-venv/
-.venv/
-env/
+dist/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
 
-# IDE
+# Entornos virtuales
+venv/
+env/
+.venv/
+ENV/
+
+# --- Datos generados por el agente (si quedaran en la raíz del código) ---
+gantt_data.json
+finops_data.json
+
+# --- Sistema operativo / editores ---
+.DS_Store
+Thumbs.db
 .vscode/
 .idea/
 *.swp
-*.swo
 *~
-
-# OS
-Thumbs.db
-.DS_Store
-desktop.ini
-
-# Datos generados por el agente (no subir al repo)
-bitacoras/
-estado.json
-gantt_data.json
-
-# Archivos de backup generados por el script de limpieza
-_backup_pre_limpieza/
