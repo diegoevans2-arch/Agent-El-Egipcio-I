@@ -1,7 +1,7 @@
 # 📖 Manual de Funcionamiento — El Egypcio
 
 > Agente LLM de documentación automática de jornada laboral para Obsidian.
-> Versión: 2.0 · Plataforma: Windows 10/11 · Python 3.10+
+> Versión: 3.0 · Plataforma: Windows 10/11 · Python 3.10+
 
 ---
 
@@ -18,13 +18,11 @@
 9. [Gestión de proyectos](#9-gestión-de-proyectos)
 10. [Gantt de proyectos](#10-gantt-de-proyectos)
 11. [Chat conversacional](#11-chat-conversacional)
-12. [Archivos de referencia y archivos agregados de task](#12-archivos-de-referencia-y-archivos-agregados-de-task)
+12. [Archivos de referencia](#12-archivos-de-referencia)
 13. [Snippets de código](#13-snippets-de-código)
-14. [FinOps — Monitor de gasto de API](#14-finops--monitor-de-gasto-de-api)
-15. [Temas visuales (skins)](#15-temas-visuales-skins)
-16. [Configuraciones](#16-configuraciones)
-17. [Estructura de archivos generados](#17-estructura-de-archivos-generados)
-18. [Solución de problemas](#18-solución-de-problemas)
+14. [Configuraciones](#14-configuraciones)
+15. [Estructura de archivos generados](#15-estructura-de-archivos-generados)
+16. [Solución de problemas](#16-solución-de-problemas)
 
 ---
 
@@ -106,12 +104,40 @@ pip install -r requirements.txt
 
 El archivo `config.json` es el centro de configuración del agente. Al clonar el repositorio viene vacío y listo para completar. Los campos mínimos que debes configurar antes del primer uso:
 
+### Estructura recomendada del proyecto
+
+El agente escribe toda su salida dentro de un vault de Obsidian. La estructura recomendada —y la que garantiza que funcione igual en cualquier equipo— es **crear el vault como una subcarpeta dentro de la carpeta del código**:
+
+```
+Agent LLM - El Egypcio/        ← carpeta del código (donde está agente.py)
+├── agente.py
+├── config.json
+├── ... (resto de .py)
+├── tests/
+└── Naos/                      ← tu vault de Obsidian (subcarpeta)
+    ├── .obsidian/
+    ├── bitacoras/
+    ├── proyectos/
+    ├── Task/
+    ├── scripts/
+    ├── snippets/
+    ├── imagenes/
+    ├── Solicitudes/
+    └── Manuales de Uso del Agente/
+```
+
+Puedes nombrar el vault como quieras (aquí, `Naos`). Abre esa subcarpeta como vault en Obsidian (Archivo → Abrir carpeta como vault).
+
 ### Campos obligatorios
 
 | Campo | Qué poner |
 |---|---|
 | `nombre_usuario` | Tu nombre (aparece en el prompt del chat y en las bitácoras) |
-| `ruta_base` | Ruta absoluta a tu vault de Obsidian. Ejemplo: `"C:/Users/TuNombre/MiVault"`. Si lo dejas vacío, usa la carpeta del agente |
+| `ruta_base` | **Ruta absoluta a tu vault** (la subcarpeta, no la carpeta del código). Ejemplo: `"C:\\Users\\TuNombre\\...\\Agent LLM - El Egypcio\\Naos"`. Es obligatorio: el nombre del vault se deriva de esta ruta, y si apunta al lugar equivocado los botones que abren Obsidian fallarán con "Vault not found" |
+
+> ⚠️ **Importante sobre `ruta_base`:** debe apuntar al **vault** (la subcarpeta
+> `Naos` u otra), NO a la carpeta donde está `agente.py`. En Windows usa doble
+> barra invertida `\\` en la ruta.
 
 ### API keys
 
@@ -242,51 +268,20 @@ Si el título de la ventana contiene alguna de las `palabras_clave_reunion` (tea
 
 Desde el campo de notas rápidas puedes escribir texto libre que se agrega a la entrada actual en la bitácora. Si usas un prefijo `@`, la nota se clasifica automáticamente:
 
-| Prefijo | Tipo de nota | Ejemplo | Archivo agregado |
-|---|---|---|---|
-| `@decision:` | Decisión tomada | `@decision: Usaremos la vista materializada` | `decisiones.md` |
-| `@tarea:` | Tarea pendiente | `@tarea: Agregar filtro por sede al reporte` | `tareas.md` |
-| `@acuerdo:` | Acuerdo de reunión | `@acuerdo: Entrega del dashboard el viernes` | `acuerdos.md` |
-| `@idea:` | Idea o propuesta | `@idea: Automatizar la carga diaria con un cron` | `ideas.md` |
-| `@bloqueado:` | Bloqueo o impedimento | `@bloqueado: Falta acceso a la tabla de docentes` | `bloqueados.md` |
-| `@ticket:` | Referencia a ticket | `@ticket: JIRA-1234 — ajustar campo de fecha` | `tickets.md` |
-| `@pendiente:` | Recordatorio | `@pendiente: Revisar query con el equipo` | `pendientes.md` |
-| `@objeto:` | Registra un objeto de trabajo | `@objeto: vw_matriculas - vista de matrículas` | `objetos.md` (upsert) |
-| `@diccionario:` | Registra un concepto | `@diccionario: SIES - Sistema de Información` | `diccionario_datos.md` (upsert) |
-| `@persona:` | Registra una persona | `@persona: María López - líder funcional` | `personas.md` (upsert) |
+| Prefijo | Tipo de nota | Ejemplo |
+|---|---|---|
+| `@decision:` | Decisión tomada | `@decision: Usaremos la vista materializada en vez del join directo` |
+| `@tarea:` | Tarea pendiente | `@tarea: Agregar filtro por sede al reporte` |
+| `@acuerdo:` | Acuerdo de reunión | `@acuerdo: Entrega del dashboard el viernes` |
+| `@idea:` | Idea o propuesta | `@idea: Automatizar la carga diaria con un cron` |
+| `@bloqueado:` | Bloqueo o impedimento | `@bloqueado: Falta acceso a la tabla de docentes` |
+| `@ticket:` | Referencia a ticket | `@ticket: JIRA-1234 — ajustar campo de fecha` |
+| `@pendiente:` | Recordatorio | `@pendiente: Revisar query con el equipo` |
+| `@objeto:` | Registra un objeto de trabajo | `@objeto: vw_matriculas - vista de matrículas vigentes` |
+| `@diccionario:` | Registra un concepto | `@diccionario: SIES - Sistema de Información de Educación Superior` |
+| `@persona:` | Registra una persona | `@persona: María López - líder funcional del proyecto` |
 
-### Archivos agregados por tipo de task
-
-Cada vez que escribes una nota con uno de los prefijos de los 7 primeros tipos (`@decision`, `@tarea`, `@acuerdo`, `@idea`, `@bloqueado`, `@ticket`, `@pendiente`), además de aparecer en la bitácora del día, la entrada se acumula en el archivo agregado correspondiente.
-
-Estos archivos tienen formato **cronológico por día**:
-
-```markdown
----
-tipo: registro-tareas
-ultima_actualizacion: 2026-05-16
-tags: [registro, tarea]
----
-
-# ⏳ Tareas
-
-> Registro cronológico de tareas detectadas en bitácoras.
-
----
-
-## 2026-05-16
-- ⏳ revisar query Maestro Mallas — [[bitacora_2026-05-16]]
-- ⏳ subir reporte a SharePoint — [[bitacora_2026-05-16]]
-
-## 2026-05-15
-- ⏳ validar datos con Pablo — [[bitacora_2026-05-15]]
-```
-
-El día más reciente queda arriba (orden cronológico inverso). Cada entrada incluye un wikilink a la bitácora donde fue registrada. **No hay upsert**: cada `@tarea` que escribes es una entrada nueva, aunque el texto sea similar a una previa.
-
-### Archivos de referencia (upsert)
-
-Los prefijos `@objeto:`, `@diccionario:` y `@persona:` escriben en archivos de referencia con upsert por nombre: si registras el mismo objeto con descripción nueva, se actualiza, no se duplica. Ver sección 12.
+Los prefijos `@objeto:`, `@diccionario:` y `@persona:` escriben en archivos de referencia separados (ver sección 12).
 
 El autocompletado se activa al escribir `@` en el campo de notas.
 
@@ -311,12 +306,35 @@ Desde el botón **🗂 Gestionar proyectos** se abre un popup donde puedes:
 
 ### Crear proyecto
 
-- **Nombre**: nombre del proyecto (se usa como identificador).
-- **Descripción**: palabras clave y descripción que el LLM usa para clasificar actividades automáticamente. Mientras más descriptiva, mejor la clasificación.
+Al crear un proyecto, el formulario tiene tres campos de texto y un control de temperatura:
+
+- **Título**: nombre del proyecto, usado como identificador en el Gantt, el MOC y las bitácoras.
+- **Descripción general**: describe *qué es* el proyecto — contexto, fuentes de datos, sistemas involucrados, stakeholders. Ayuda al LLM a ubicar el proyecto en el dominio correcto.
+- **Objetivos específicos**: describe *qué actividades cuentan* como parte del proyecto. Es el criterio de inclusión real. Cuanto más específico seas aquí, más precisa será la clasificación automática.
+- **Temperatura de clasificación**: controla el determinismo del LLM al decidir si una actividad pertenece al proyecto (ver sección a continuación).
+
+> **Consejo**: el campo más importante es **Objetivos específicos**. Una descripción general buena sitúa el proyecto; unos objetivos específicos buenos evitan las clasificaciones erróneas.
+
+### La temperatura de clasificación
+
+La temperatura es un parámetro del LLM que regula cuánta variación hay en sus respuestas.
+
+**Analogía:** imagina un árbitro de fútbol tomando una decisión difícil en el área. Con temperatura baja (0.0–0.2), el árbitro es estricto y predecible: si no hay evidencia clara de falta, no pita. Con temperatura alta (0.7–1.0), el árbitro tiene más margen de interpretación y puede decidir de formas distintas ante la misma situación.
+
+En la clasificación de proyectos:
+
+| Temperatura | Comportamiento | Cuándo usarlo |
+|---|---|---|
+| `0.0` | Máximo determinismo. Siempre elige la opción con mayor evidencia. | Proyectos con actividades muy específicas y bien delimitadas |
+| `0.1 – 0.2` | Casi siempre determinista, con mínima variación. **Recomendado por defecto.** | La mayoría de los proyectos |
+| `0.3 – 0.5` | Criterio más flexible. Acepta relaciones menos directas. | Proyectos transversales o con objetivos amplios |
+| `0.7 – 1.0` | Alta variación. Puede clasificar de forma inconsistente. | No recomendado para clasificación |
+
+El agente usa el **promedio de temperaturas de los proyectos activos** al hacer cada clasificación. Si tienes tres proyectos activos con temperaturas 0.1, 0.2 y 0.3, la temperatura efectiva será 0.2.
 
 ### Editar proyecto
 
-Modifica el nombre, la descripción o el estado de un proyecto existente.
+Modifica el título, la descripción general, los objetivos específicos o la temperatura de clasificación de un proyecto existente. Los proyectos creados con versiones anteriores del agente migran automáticamente: su campo `palabras_clave` aparece pre-cargado en el campo de descripción general, listo para separar en los dos campos nuevos.
 
 ### Cerrar proyecto
 
@@ -332,7 +350,7 @@ Cada proyecto tiene un botón para abrir su archivo `.md` directamente en Obsidi
 
 ### Migrar bitácoras antiguas
 
-El botón **🔁 Migrar bitácoras antiguas** procesa todas las bitácoras existentes, clasifica cada entrada contra los proyectos activos usando el LLM, y reconstruye los archivos `.md` de proyectos y el Gantt desde cero. Útil cuando defines proyectos después de haber acumulado bitácoras.
+El botón **🔁 Migrar bitácoras antiguas** procesa todas las bitácoras existentes, clasifica cada entrada contra los proyectos activos usando el LLM, y reconstruye los archivos `.md` de proyectos y el Gantt desde cero. Útil cuando defines proyectos después de haber acumulado bitácoras, o cuando actualizas los objetivos de un proyecto y quieres recalcular el histórico.
 
 ---
 
@@ -361,23 +379,6 @@ El chat integrado permite hacerle preguntas al agente sobre tu jornada laboral. 
 - Las bitácoras de los últimos N días (configurable en `dias_contexto_chat`).
 - Los archivos de referencia: `objetos.md`, `personas.md`, `diccionario_datos.md`.
 - Las descripciones de los proyectos mencionados en las bitácoras del período.
-- **Carga condicional de archivos agregados de task** según keywords de la pregunta (ver más abajo).
-
-### Carga condicional de archivos de task
-
-Si tu pregunta menciona keywords relacionadas con un tipo de task, el agente carga ese archivo completo como contexto adicional. Esto optimiza tokens: solo se trae lo necesario.
-
-| Pregunta | Archivo cargado |
-|---|---|
-| "¿qué pendientes tengo?" | `pendientes.md` |
-| "muéstrame las tareas" | `tareas.md` |
-| "¿qué decidí esta semana?" | `decisiones.md` |
-| "ideas y acuerdos" | `ideas.md` + `acuerdos.md` |
-| "¿hay algún bloqueo?" | `bloqueados.md` |
-| "revisemos los tickets" | `tickets.md` |
-| "resúmeme el día" | Ninguno (solo bitácoras + referencias estáticas) |
-
-El matching es tolerante a tildes y mayúsculas. Usa word-boundaries para no confundir palabras parecidas (por ejemplo, "ideal" no activa "idea"). Los **resúmenes diarios y semanales** nunca activan carga condicional (no aplica ahí).
 
 ### Ejemplos de preguntas
 
@@ -398,7 +399,7 @@ Los resúmenes generados se guardan automáticamente en la bitácora del día.
 
 ### Contexto fresco
 
-El contexto (bitácoras + archivos de referencia + archivos de task si aplica) se relee en cada turno de conversación, así el LLM siempre ve la versión más actualizada. El historial de chat guarda solo las preguntas limpias (sin el contexto), evitando acumular bitácoras viejas.
+El contexto (bitácoras + archivos de referencia) se relee en cada turno de conversación, así el LLM siempre ve la versión más actualizada. El historial de chat guarda solo las preguntas limpias (sin el contexto), evitando acumular bitácoras viejas.
 
 ### System prompt personalizable
 
@@ -406,13 +407,9 @@ El prompt del sistema se puede editar desde Configuraciones. Soporta las variabl
 
 ---
 
-## 12. Archivos de referencia y archivos agregados de task
+## 12. Archivos de referencia
 
-El agente mantiene **dos tipos** de archivos derivados de tus notas estructuradas, con comportamiento distinto.
-
-### 12.1 Archivos de referencia (upsert por nombre)
-
-Archivos curados manualmente que el agente usa como fuente de verdad. Se crean y actualizan usando los prefijos `@objeto:`, `@diccionario:` y `@persona:` desde el campo de notas.
+Son archivos Markdown curados manualmente que el agente usa como fuente de verdad. Se crean y actualizan usando los prefijos `@objeto:`, `@diccionario:` y `@persona:` desde el campo de notas.
 
 | Archivo | Prefijo | Contenido |
 |---|---|---|
@@ -420,56 +417,13 @@ Archivos curados manualmente que el agente usa como fuente de verdad. Se crean y
 | `bitacoras/diccionario_datos.md` | `@diccionario:` | Conceptos, siglas y términos del dominio |
 | `bitacoras/personas.md` | `@persona:` | Personas del entorno laboral |
 
-**Comportamiento de upsert**:
+### Comportamiento de upsert
+
 - Si el nombre **no existe** → se agrega como nueva entrada.
 - Si ya **existe con nueva descripción** → se actualiza.
 - Si ya **existe sin descripción nueva** → se preserva sin cambios.
 
-Las entradas se ordenan alfabéticamente dentro de cada archivo. Estos archivos se cargan **siempre** como contexto del chat.
-
-### 12.2 Archivos agregados de task (cronológicos, sin upsert)
-
-Archivos que acumulan cronológicamente todas las notas con prefijos de task. Una nueva entrada nunca reemplaza una previa, se suma como línea independiente.
-
-| Archivo | Prefijo |
-|---|---|
-| `bitacoras/decisiones.md` | `@decision:` |
-| `bitacoras/tareas.md` | `@tarea:` |
-| `bitacoras/acuerdos.md` | `@acuerdo:` |
-| `bitacoras/ideas.md` | `@idea:` |
-| `bitacoras/bloqueados.md` | `@bloqueado:` |
-| `bitacoras/tickets.md` | `@ticket:` |
-| `bitacoras/pendientes.md` | `@pendiente:` |
-
-**Formato**:
-
-```markdown
----
-tipo: registro-decisiones
-ultima_actualizacion: 2026-05-16
-tags: [registro, decision]
----
-
-# ✅ Decisiones
-
-> Registro cronológico de decisiones detectadas en bitácoras.
-
----
-
-## 2026-05-16
-- ✅ Usar Banner9 como fuente principal — [[bitacora_2026-05-16]]
-- ✅ Migrar reportes a Power BI — [[bitacora_2026-05-16]]
-
-## 2026-05-15
-- ✅ Cambiar arquitectura del Maestro — [[bitacora_2026-05-15]]
-```
-
-- El día más reciente queda **arriba** (orden cronológico inverso).
-- Dentro de cada día las entradas van en orden de inserción.
-- Cada entrada tiene un wikilink a la bitácora origen.
-- **No hay upsert**: registros con texto similar se acumulan, no se deduplican.
-
-Estos archivos se cargan en el chat **solo cuando la pregunta del usuario los menciona por keyword** (ver sección 11).
+Las entradas se ordenan alfabéticamente dentro de cada archivo.
 
 ---
 
@@ -494,95 +448,7 @@ SQL, Python, Bash, JavaScript, JSON y YAML.
 
 ---
 
-## 14. FinOps — Monitor de gasto de API
-
-El módulo **FinOps** está integrado en el popup de Configuraciones. Muestra el consumo de tokens y costo USD acumulado por cada llamada al LLM, separado por tipo de operación.
-
-### ¿Qué se muestra?
-
-- **Tarjetas Hoy / Este mes** con costo USD, número de llamadas y tokens totales.
-- **Desglose por tipo de operación** con barras de porcentaje:
-  - 📸 Captura actividad (análisis de ventana activa con Vision)
-  - 🎥 Captura reunión (análisis durante modo reunión)
-  - 🎯 Clasificación de proyecto (modelo rápido del LLM)
-  - 💬 Chat usuario (preguntas al chat)
-  - 📋 Resumen día / Resumen semana (botones rápidos del chat)
-- **Modelo activo** y precios por millón de tokens (input/output).
-- **Fecha de última actualización** de los precios hardcoded.
-- **Gráfico de 5 días** para ver tendencia.
-
-### ¿Cómo se calcula?
-
-Cada llamada al LLM se intercepta en `cliente_ia.py` y se registra automáticamente:
-1. Se extraen los tokens de input/output del response de la API.
-2. Se calcula el costo según el modelo usado y los precios configurados.
-3. Se persiste **agregado por día** en `bitacoras/finops_data.json` (no se guarda cada llamada individual; solo el total diario por tipo).
-
-### Override de precios
-
-Los precios vienen hardcoded en `finops.py` con la última actualización al momento de la versión. Si los precios cambian, puedes overridearlos sin tocar código, en `config.json`:
-
-```json
-"finops": {
-    "precios_override": {
-        "claude-sonnet-4-6": [3.00, 15.00],
-        "gemini-2.5-flash": [0.075, 0.30]
-    }
-}
-```
-
-Los valores son `[precio_input_por_millón_tokens, precio_output_por_millón_tokens]` en USD.
-
-### Botones del módulo
-
-| Botón | Función |
-|---|---|
-| 🔄 Refrescar | Vuelve a cargar los datos desde `finops_data.json` |
-| 🗑 Limpiar histórico | Borra TODO el histórico de uso (con confirmación, irreversible) |
-
-### Tolerancia a fallos
-
-FinOps nunca rompe el flujo principal del agente: si algo falla al registrar (archivo corrupto, modelo desconocido, etc.), la llamada al LLM continúa normalmente. Los errores se logean en consola y se ignoran silenciosamente.
-
----
-
-## 15. Temas visuales (skins)
-
-El agente soporta 5 temas visuales (skins) cambiables desde Configuraciones, con vista previa en vivo antes de guardar.
-
-### Temas disponibles
-
-| Tema | Tipo | Uso recomendado |
-|---|---|---|
-| 🌙 Catppuccin Mocha | Oscuro azulado | Default — uso normal |
-| 🌿 Catppuccin Latte | Claro azulado | Trabajo de día con luz natural |
-| 🧛 Dracula | Oscuro violeta | Sesiones largas de programación |
-| 🌊 Nord | Oscuro frío | Estética minimalista escandinava |
-| ⚡ Alto contraste | Negro puro + verde fosforescente | Accesibilidad / fatiga visual |
-
-### Cómo cambiar el tema
-
-1. Abrir Configuraciones (⚙).
-2. Bajar hasta la sección **🎨 Tema visual**.
-3. Elegir un tema del combo.
-4. Presionar **👁 Vista previa** para verlo aplicado en vivo a la ventana principal y al popup.
-5. Si te gusta, presionar **✅ Guardar cambios**. Si no, **Cancelar** restaura el tema anterior.
-
-### Persistencia
-
-El tema activo se guarda en `config.json` → `tema_visual` con uno de estos valores: `mocha`, `latte`, `dracula`, `nord`, `alto_contraste`. Al arrancar el agente se carga ese tema automáticamente.
-
-### Aplicación en caliente
-
-El cambio de tema se aplica en caliente a:
-- La ventana principal del agente.
-- El popup de configuraciones (que es donde lo eliges).
-
-Otros popups que estén abiertos al momento mantendrán el tema anterior; al cerrarlos y abrirlos de nuevo tomarán el tema activo.
-
----
-
-## 16. Configuraciones
+## 14. Configuraciones
 
 El popup de **Configuraciones** (botón ⚙) permite editar todo sin tocar JSON:
 
@@ -607,24 +473,30 @@ El popup de **Configuraciones** (botón ⚙) permite editar todo sin tocar JSON:
 
 | Campo | Descripción |
 |---|---|
-| System prompt | Prompt personalizable del asistente (con variables `{nombre_usuario}` y `{dias_contexto}`) |
+| Prompt del agente | Prompt personalizable del asistente (con variables `{nombre_usuario}` y `{dias_contexto}`) |
+| Prompt de clasificación de proyectos | Plantilla del prompt que el LLM usa para decidir a qué proyecto pertenece cada actividad detectada (ver subsección siguiente) |
 | Modelo IA | Selector del modelo para el proveedor activo |
 
-### FinOps (consumo de API)
+### Prompt de clasificación de proyectos
 
-Ver sección 14. Aquí se visualiza el módulo de monitoreo (no es editable, salvo "Limpiar histórico").
+Este campo te permite personalizar el criterio que el LLM usa para clasificar actividades en proyectos, sin tocar código.
 
-### Tema visual
+**Placeholders obligatorios** — deben aparecer textualmente en el template o el guardado será rechazado:
 
-Ver sección 15. Selector de skin con botón de vista previa.
+| Placeholder | Qué inserta el agente |
+|---|---|
+| `{titulo_ventana}` | Título de la ventana detectada |
+| `{descripcion_actividad}` | Descripción generada por el LLM de visión |
+| `{lista_proyectos}` | Bloque con descripción y objetivos de cada proyecto activo |
+| `{lista_nombres}` | Lista de nombres válidos como respuesta |
 
-### Aplicación de cambios
+Si dejas el campo vacío o presionas **↺ Restaurar default**, se usa la plantilla por defecto. El agente incluye 6 niveles predefinidos de criterio de clasificación (estricto, moderado, flexible, por herramienta exclusiva, anti-transversal y debug) documentados en el archivo `nota-tecnica_prompts-clasificacion.md` del vault.
 
-Los cambios en listas, contexto, prompt y tema se aplican **en caliente** (sin reiniciar). El modelo IA también se aplica en caliente si el cliente está activo.
+Los cambios en listas, contexto y prompts se aplican **en caliente** (sin reiniciar). El modelo IA también se aplica en caliente si el cliente está activo.
 
 ---
 
-## 17. Estructura de archivos generados
+## 15. Estructura de archivos generados
 
 Dentro de tu `ruta_base` (vault de Obsidian), el agente genera:
 
@@ -635,19 +507,9 @@ bitacoras/
 ├── ...
 ├── gantt_proyectos.md              # Gantt global Mermaid
 ├── gantt_data.json                 # Datos crudos del Gantt
-├── finops_data.json                # Datos crudos de FinOps (agregados por día)
-│
-├── objetos.md                      # Referencia (@objeto:) — upsert por nombre
-├── personas.md                     # Referencia (@persona:) — upsert por nombre
-├── diccionario_datos.md            # Referencia (@diccionario:) — upsert por nombre
-│
-├── decisiones.md                   # Archivos agregados por tipo de task
-├── tareas.md                       # (cronológicos, agrupados por día,
-├── acuerdos.md                     #  con wikilinks a la bitácora origen,
-├── ideas.md                        #  sin upsert)
-├── bloqueados.md
-├── tickets.md
-├── pendientes.md
+├── objetos.md                      # Registro de objetos (@objeto:)
+├── personas.md                     # Registro de personas (@persona:)
+├── diccionario_datos.md            # Diccionario de datos (@diccionario:)
 │
 ├── proyectos/                      # Un .md por proyecto (MOCs)
 │   ├── Mi_Proyecto.md
@@ -676,39 +538,16 @@ Cada bitácora tiene:
 Cada proyecto tiene:
 
 - **Frontmatter ampliado** con métricas (horas totales, capturas, reuniones, snippets, personas, herramientas).
+- **Sección de descripción** con el contexto del proyecto.
+- **Sección de objetivos específicos** con los criterios de inclusión configurados.
 - **Diagrama Gantt individual** en Mermaid.
 - **Sección de snippets** relacionados con wikilinks.
 - **Sección de resumen** con indicadores de actividad.
 - **Entradas agrupadas por día** con wikilinks a las bitácoras.
 
-### Archivos agregados de task
-
-Cronológicos por día, formato descrito en sección 12.2.
-
-### finops_data.json
-
-Archivo JSON con la estructura:
-
-```json
-{
-  "version": 1,
-  "registros_por_dia": {
-    "2026-05-16": {
-      "captura_actividad": {
-        "llamadas": 89,
-        "tokens_input": 137000,
-        "tokens_output": 16800,
-        "costo_usd": 0.663,
-        "modelos": {"claude-sonnet-4-6": 89}
-      }
-    }
-  }
-}
-```
-
 ---
 
-## 18. Solución de problemas
+## 16. Solución de problemas
 
 ### El agente no arranca
 
@@ -733,11 +572,14 @@ Archivo JSON con la estructura:
 - Verifica que `ruta_base` apunte a la raíz de tu vault de Obsidian.
 - Verifica que Obsidian esté instalado y que las rutas `ruta_obsidian_1` / `ruta_obsidian_2` sean correctas (o déjalas vacías para autodetección).
 
-### El Gantt no clasifica actividades
+### El Gantt no clasifica actividades correctamente
 
 - Verifica que tengas al menos un proyecto con estado "activo".
 - Las entradas de menos de 2 minutos no se clasifican.
-- La descripción del proyecto (`palabras_clave`) ayuda al LLM a clasificar mejor; mientras más descriptiva, más preciso el matching.
+- Asegúrate de que el campo **Objetivos específicos** de cada proyecto esté completo — es el criterio que el LLM usa para decidir si una actividad pertenece al proyecto.
+- Si el agente clasifica demasiadas actividades en el proyecto incorrecto, prueba bajar la temperatura del proyecto a 0.1 o 0.0 para hacerla más estricta.
+- Si el agente clasifica muy pocas actividades (demasiados "ninguno"), prueba subir la temperatura a 0.3–0.5 o usa el nivel **Moderado** del prompt de clasificación.
+- Para diagnosticar clasificaciones inesperadas, activa temporalmente el nivel **Debug** del prompt (ver `nota-tecnica_prompts-clasificacion.md`) y observa los logs de consola.
 
 ### El agente consume mucha API
 
